@@ -1,3 +1,5 @@
 .idea
 venv
-toy-dataset
+sir-toy-dataset
+mnist
+cifar-10
