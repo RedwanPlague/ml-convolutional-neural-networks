@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import sklearn.metrics as sm
 
 EPS = 1e-20
 np.random.seed(4)
@@ -11,14 +12,20 @@ def safe_log(x):
     return np.log(x)
 
 
+def get_labels(y):
+    return np.argmax(y, axis=1).ravel()
+
+
 def cross_entropy_loss(y_true, y_pred):
     return -np.average(np.sum(y_true * safe_log(y_pred), axis=1))
 
 
 def accuracy(y_true, y_pred):
-    pred = np.argmax(y_pred, axis=1)
-    act = np.argmax(y_true, axis=1)
-    return np.average(pred == act)
+    return sm.accuracy_score(get_labels(y_true), get_labels(y_pred))
+
+
+def f1_score(y_true, y_pred):
+    return sm.f1_score(get_labels(y_true), get_labels(y_pred), average='macro')
 
 
 class DataLoader:
@@ -157,7 +164,6 @@ class Model:
         with open(arch_file) as f:
             for line in f:
                 layer_data = line.split()
-                print(layer_data)
                 layer_name = layer_data[0]
                 if layer_name == 'FC':
                     out_dim = (int(layer_data[1]), 1)
@@ -198,7 +204,8 @@ def train(model, dataloader, epochs=5):
             y_val_pred = model.forward(x_val)
             loss = cross_entropy_loss(y_val, y_val_pred)
             acc = accuracy(y_val, y_val_pred)
-            print(f'loss: {loss:.2f}, acc: {acc:.2f}')
+            f1 = f1_score(y_val, y_val_pred)
+            print(f'loss: {loss:>2.2f}, acc: {acc:>2.2f}, f1: {f1:>2.2f}')
             losses.append(loss)
     plt.plot(range(len(losses)), losses)
     plt.show()
@@ -212,9 +219,9 @@ def log(arch_file, params, metrics):
 def main():
     arch_file = 'input.txt'
     params = {
-        'batch_size': 500,
-        'epochs': 500,
-        'alpha': 1e-1
+        'batch_size': 50,
+        'epochs': 100,
+        'alpha': 2
     }
 
     dataloader = ToyDataLoader(params['batch_size'])
@@ -223,19 +230,6 @@ def main():
     print(model)
 
     metrics = train(model, dataloader, params['epochs'])
-    ar = np.expand_dims(np.array([
-        [1, 0, 0, 0],  # 1
-        [0, 1, 0, 0],  # 2
-        [0, 0, 1, 0],  # 3
-        [0, 0, 0, 1],  # 4
-        [1, 1, 0, 0],  # 1
-        [0, 1, 1, 0],  # 2
-        [0, 0, 1, 1],  # 3
-        [1, 0, 0, 1],  # 4
-        [1, 0, 1, 0],  # 1
-        [0, 1, 0, 1],  # 2
-    ]), axis=2)
-    print(np.argmax(model.forward(ar), axis=1).ravel() + 1)
     log(arch_file, params, metrics)
 
 

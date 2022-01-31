@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from sklearn.metrics import log_loss, accuracy_score, f1_score
 
 
 # a = np.random.randn(64, 4, 5)
@@ -67,3 +68,6 @@ print(-y_true * safe_log(y_pred))
 print(np.sum(-y_true * safe_log(y_pred), axis=1))
 print(np.average(np.sum(-y_true * safe_log(y_pred), axis=1)))
 print(cross_entropy_loss(y_true, y_pred))
+
+pred = np.argmax(y_true)
+print(log_loss())
