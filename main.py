@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import sklearn.metrics as sm
 import pickle
+from mlxtend.data import loadlocal_mnist
 
 np.random.seed(4)
 
@@ -49,8 +50,8 @@ class DataLoader:
         self.cur = 0
         self.x_train = x_train
         self.y_train = y_train
-        # m = len(x_test) // 2
-        m = len(x_test)
+        m = len(x_test) // 2
+        # m = len(x_test)
         self.x_val = x_test[:m]
         self.y_val = y_test[:m]
         self.x_test = x_test[m:]
@@ -72,6 +73,9 @@ class DataLoader:
         self.cur = end
         return x_train_batch, y_train_batch
 
+    def train_data(self):
+        return self.x_train, self.y_train
+
     def val_data(self):
         return self.x_val, self.y_val
 
@@ -85,18 +89,17 @@ class ToyDataLoader(DataLoader):
         df = pd.read_csv(data_file, delim_whitespace=True, header=None)
         df = df.sample(frac=1)  # shuffle data
         x = np.array(df.iloc[:, :-1])
-        x = np.expand_dims(x, axis=2)
+        x = x.astype(float) / np.max(x)
         y = np.array(df.iloc[:, -1])
         y = np.array(pd.get_dummies(y))
-        y = np.expand_dims(y, axis=2)
         print(x.shape, y.shape)
         return x, y
 
     def __init__(self, batch_size):
-        # x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
-        # x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
-        x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
-        x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
+        x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
+        x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
+        # x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
+        # x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -111,17 +114,17 @@ class CIFAR10Loader(DataLoader):
     def read_data(data_file):
         with open(data_file, 'rb') as f:
             dct = pickle.load(f, encoding='bytes')
-        data = dct[b'data']
-        x = np.reshape(data, (10000, 3, 32, 32))
+        x = dct[b'data']
+        x = x.astype(float) / np.max(x)
+        x = np.reshape(x, (len(x), 3, 32, 32))
         labels = dct[b'labels']
         y = one_hot_encode(labels)
-        y = np.expand_dims(y, axis=2)
-        return x[:100], y[:100]
+        # y = np.expand_dims(y, axis=2)
+        return x, y
 
     def draw_img(self, idx):
         print(self.label_names[np.argmax(self.y_train[idx])])
-        img = self.x_train[idx]
-        img = img.transpose((1, 2, 0))
+        img = self.x_train[idx].transpose((1, 2, 0))
         plt.imshow(img)
         plt.show()
 
@@ -138,6 +141,30 @@ class CIFAR10Loader(DataLoader):
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
+class MNISTLoader(DataLoader):
+    @staticmethod
+    def read_data(img_file, label_file):
+        x, y = loadlocal_mnist(images_path=img_file, labels_path=label_file)
+        x = x.astype(float) / np.max(x)
+        y = one_hot_encode(y)
+        print(x.shape, y.shape)
+        x = np.reshape(x, (len(x), 1, 28, 28))
+        # y = np.expand_dims(y, axis=2)
+        print(x.shape, y.shape)
+        return x, y
+
+    def draw_img(self, idx):
+        print(np.argmax(self.y_train[idx]))
+        img = np.squeeze(self.x_train[idx])
+        plt.imshow(img, cmap='gray')
+        plt.show()
+
+    def __init__(self, batch_size):
+        x_train, y_train = self.read_data('mnist/train-images.idx3-ubyte', 'mnist/train-labels.idx1-ubyte')
+        x_test, y_test = self.read_data('mnist/t10k-images.idx3-ubyte', 'mnist/t10k-labels.idx1-ubyte')
+        super().__init__(batch_size, x_train, y_train, x_test, y_test)
+
+
 class Flatten:
     def __init__(self):
         self.x_shape = None
@@ -147,7 +174,7 @@ class Flatten:
 
     def forward(self, x):
         self.x_shape = x.shape
-        return np.reshape(x, (len(x), -1, 1))
+        return np.reshape(x, (len(x), -1))
 
     def backward(self, dy):
         return np.reshape(dy, self.x_shape)
@@ -155,40 +182,41 @@ class Flatten:
 
 class Dense:
     def __init__(self, in_dim, out_dim, alpha=1e-3):
-        self.weight = np.random.rand(out_dim, in_dim)
-        self.bias = np.random.rand(out_dim, 1)
+        self.weight = np.random.rand(in_dim, out_dim) * 0.001
+        self.bias = np.random.rand(out_dim) * 0.001
         self.alpha = alpha
         self.x = None
 
     def __repr__(self):
-        out_dim, in_dim = self.weight.shape
+        in_dim, out_dim = self.weight.shape
         return f'Dense {in_dim} -> {out_dim}'
 
     def forward(self, x):
         self.x = x
-        return self.weight @ x + self.bias
+        return x @ self.weight + self.bias
 
     def backward(self, dy):
-        dw = np.average(dy @ self.x.transpose((0, 2, 1)), axis=0)
-        db = np.average(dy)
+        dw = self.x.T @ dy
+        db = np.average(dy, axis=0)
         self.weight -= self.alpha * dw
         self.bias -= self.alpha * db
-        return self.weight.T @ dy
+        return dy @ self.weight.T
 
 
 class ReLU:
     def __init__(self):
         self.x = None
+        self.m = 0.001
 
     def __repr__(self):
         return 'ReLU'
 
     def forward(self, x):
         self.x = x
-        return np.where(x < 0, 0, x)
+        return np.where(x < 0, 0, x * self.m)
 
     def backward(self, dy):
-        return np.where(self.x < 0, 0, dy)
+        return np.where(self.x < 0, 0, dy * self.m)
 
 
 class Softmax:
@@ -199,6 +227,7 @@ class Softmax:
         return 'Softmax'
 
     def forward(self, x):
+        x -= np.max(x)
         y = np.exp(x)
         s = np.sum(y, axis=1, keepdims=True)
         s[s == 0] = 1
@@ -219,7 +248,7 @@ class Model:
                 layer_data = line.split()
                 layer_name = layer_data[0]
                 if layer_name == 'FC':
-                    out_dim = (int(layer_data[1]), 1)
+                    out_dim = (int(layer_data[1]),)
                     self.layers.append(Dense(in_dim[0], out_dim[0], alpha))
                     in_dim = out_dim
                 elif layer_name == 'ReLU':
@@ -228,7 +257,7 @@ class Model:
                     self.layers.append(Softmax())
                 elif layer_name == 'Flatten':
                     self.layers.append(Flatten())
-                    in_dim = (product(in_dim), 1)
+                    in_dim = (product(in_dim),)
 
     def __repr__(self):
         return '\n'.join(str(layer) for layer in self.layers)
@@ -245,25 +274,41 @@ class Model:
             grad = layer.backward(grad)
 
 
+def calc_metrics(model, data):
+    x, y = data
+    y_pred = model.forward(x)
+    loss = cross_entropy_loss(y, y_pred)
+    acc = accuracy(y, y_pred)
+    f1 = f1_score(y, y_pred)
+    return loss, acc, f1
+
+
 def train(model, dataloader, epochs=5):
-    losses = []
+    t_losses, v_losses = [], []
     for i in range(epochs):
         dataloader.reset()
         while dataloader.next():
             x, y = dataloader.next_train_batch()
             model.forward(x)
             model.backward(y)
-            print('.', end='')
-        x_val, y_val = dataloader.val_data()
-        y_val_pred = model.forward(x_val)
-        loss = cross_entropy_loss(y_val, y_val_pred)
-        acc = accuracy(y_val, y_val_pred)
-        f1 = f1_score(y_val, y_val_pred)
-        print(f'loss: {loss:>2.2f}, acc: {acc:>2.2f}, f1: {f1:>2.2f}')
-        losses.append(loss)
-    plt.plot(range(len(losses)), losses)
+        print(i)
+        t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
+        v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
+        # print(f't_loss: {t_loss:>2.2f}, t_acc: {t_acc:>2.2f}, t_f1: {t_f1:>2.2f}')
+        # print(f'v_loss: {v_loss:>2.2f}, v_acc: {v_acc:>2.2f}, v_f1: {v_f1:>2.2f}')
+        t_losses.append(t_loss)
+        v_losses.append(v_loss)
+    t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
+    v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
+    print(f't_loss: {t_loss:>2.2f}, t_acc: {t_acc:>2.2f}, t_f1: {t_f1:>2.2f}')
+    print(f'v_loss: {v_loss:>2.2f}, v_acc: {v_acc:>2.2f}, v_f1: {v_f1:>2.2f}')
+    t_losses.append(t_loss)
+    v_losses.append(v_loss)
+
+    plt.plot(range(len(t_losses)), t_losses, color='red', lw=2)
+    plt.plot(range(len(v_losses)), v_losses, color='blue', lw=2)
     plt.show()
-    return []
+    return {}
 
 
 def log(arch_file, params, metrics):
@@ -273,13 +318,15 @@ def log(arch_file, params, metrics):
 def main():
     arch_file = 'input.txt'
     params = {
-        'batch_size': 10,
-        'epochs': 100,
-        'alpha': 5
+        'batch_size': 500,
+        'epochs': 5,
+        'alpha': 1e-2
     }
 
     # dataloader = ToyDataLoader(params['batch_size'])
-    dataloader = CIFAR10Loader(params['batch_size'])
+    # dataloader = CIFAR10Loader(params['batch_size'])
+    dataloader = MNISTLoader(params['batch_size'])
+    # dataloader.draw_img(0)
 
     model = Model(arch_file, dataloader.shape(), params['alpha'])
     print(model)

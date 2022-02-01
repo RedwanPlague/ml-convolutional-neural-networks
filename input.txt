@@ -1,2 +1,3 @@
-FC 4
+Flatten
+FC 10
 Softmax
