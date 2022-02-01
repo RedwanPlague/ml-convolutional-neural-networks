@@ -2,14 +2,22 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import sklearn.metrics as sm
+import pickle
 
-EPS = 1e-20
 np.random.seed(4)
 
 
 def safe_log(x):
     x[x == 0] = 1
     return np.log(x)
+
+
+# returns product of all elements
+def product(a):
+    prod = 1
+    for x in a:
+        prod *= x
+    return prod
 
 
 def get_labels(y):
@@ -26,6 +34,13 @@ def accuracy(y_true, y_pred):
 
 def f1_score(y_true, y_pred):
     return sm.f1_score(get_labels(y_true), get_labels(y_pred), average='macro')
+
+
+# list to one hot encoded numpy array
+def one_hot_encode(a):
+    b = np.zeros((len(a), max(a) + 1))
+    b[range(len(a)), a] = 1
+    return b
 
 
 class DataLoader:
@@ -85,6 +100,44 @@ class ToyDataLoader(DataLoader):
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
+class CIFAR10Loader(DataLoader):
+    @staticmethod
+    def load_label_names():
+        with open('cifar-10/batches.meta', 'rb') as f:
+            dct = pickle.load(f, encoding='bytes')
+        return dct[b'label_names']
+
+    @staticmethod
+    def read_data(data_file):
+        with open(data_file, 'rb') as f:
+            dct = pickle.load(f, encoding='bytes')
+        data = dct[b'data']
+        x = np.reshape(data, (10000, 3, 32, 32))
+        labels = dct[b'labels']
+        y = one_hot_encode(labels)
+        y = np.expand_dims(y, axis=2)
+        return x[:100], y[:100]
+
+    def draw_img(self, idx):
+        print(self.label_names[np.argmax(self.y_train[idx])])
+        img = self.x_train[idx]
+        img = img.transpose((1, 2, 0))
+        plt.imshow(img)
+        plt.show()
+
+    def __init__(self, batch_size):
+        self.label_names = self.load_label_names()
+        x_batches, y_batches = [], []
+        for i in range(1, 6):
+            x_batch, y_batch = self.read_data(f'cifar-10/data_batch_{i}')
+            x_batches.append(x_batch)
+            y_batches.append(y_batch)
+        x_train = np.concatenate(x_batches)
+        y_train = np.concatenate(y_batches)
+        x_test, y_test = self.read_data('cifar-10/test_batch')
+        super().__init__(batch_size, x_train, y_train, x_test, y_test)
+
+
 class Flatten:
     def __init__(self):
         self.x_shape = None
@@ -94,7 +147,7 @@ class Flatten:
 
     def forward(self, x):
         self.x_shape = x.shape
-        return np.reshape(x, (-1, 1))
+        return np.reshape(x, (len(x), -1, 1))
 
     def backward(self, dy):
         return np.reshape(dy, self.x_shape)
@@ -175,6 +228,7 @@ class Model:
                     self.layers.append(Softmax())
                 elif layer_name == 'Flatten':
                     self.layers.append(Flatten())
+                    in_dim = (product(in_dim), 1)
 
     def __repr__(self):
         return '\n'.join(str(layer) for layer in self.layers)
@@ -199,14 +253,14 @@ def train(model, dataloader, epochs=5):
             x, y = dataloader.next_train_batch()
             model.forward(x)
             model.backward(y)
-            # break
-            x_val, y_val = dataloader.val_data()
-            y_val_pred = model.forward(x_val)
-            loss = cross_entropy_loss(y_val, y_val_pred)
-            acc = accuracy(y_val, y_val_pred)
-            f1 = f1_score(y_val, y_val_pred)
-            print(f'loss: {loss:>2.2f}, acc: {acc:>2.2f}, f1: {f1:>2.2f}')
-            losses.append(loss)
+            print('.', end='')
+        x_val, y_val = dataloader.val_data()
+        y_val_pred = model.forward(x_val)
+        loss = cross_entropy_loss(y_val, y_val_pred)
+        acc = accuracy(y_val, y_val_pred)
+        f1 = f1_score(y_val, y_val_pred)
+        print(f'loss: {loss:>2.2f}, acc: {acc:>2.2f}, f1: {f1:>2.2f}')
+        losses.append(loss)
     plt.plot(range(len(losses)), losses)
     plt.show()
     return []
@@ -219,12 +273,13 @@ def log(arch_file, params, metrics):
 def main():
     arch_file = 'input.txt'
     params = {
-        'batch_size': 50,
+        'batch_size': 10,
         'epochs': 100,
-        'alpha': 2
+        'alpha': 5
     }
 
-    dataloader = ToyDataLoader(params['batch_size'])
+    # dataloader = ToyDataLoader(params['batch_size'])
+    dataloader = CIFAR10Loader(params['batch_size'])
 
     model = Model(arch_file, dataloader.shape(), params['alpha'])
     print(model)
