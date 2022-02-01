@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import log_loss, accuracy_score, f1_score
 
-
 # a = np.random.randn(64, 4, 5)
 # print(a[:2].shape)
 # print(a[2:].shape)
@@ -53,21 +52,46 @@ from sklearn.metrics import log_loss, accuracy_score, f1_score
 # print(a.shape)
 # print(b.shape)
 
-def safe_log(x):
-    x[x == 0] = 1
-    return np.log(x)
+# def safe_log(x):
+#     x[x == 0] = 1
+#     return np.log(x)
+#
+#
+# def cross_entropy_loss(y_true, y_pred):
+#     return np.average(np.sum(-y_true * safe_log(y_pred), axis=1))
+#
+#
+# y_true = np.random.rand(64, 4, 1)
+# y_pred = np.random.rand(64, 4, 1)
+# print(-y_true * safe_log(y_pred))
+# print(np.sum(-y_true * safe_log(y_pred), axis=1))
+# print(np.average(np.sum(-y_true * safe_log(y_pred), axis=1)))
+# print(cross_entropy_loss(y_true, y_pred))
+#
+# pred = np.argmax(y_true)
+# print(log_loss())
 
+# a = np.random.rand(2, 3)
+# print(a)
+# print(a.shape)
+# a = np.pad(a, 2, constant_values=0)
+# print(a)
+# print(a.shape)
 
-def cross_entropy_loss(y_true, y_pred):
-    return np.average(np.sum(-y_true * safe_log(y_pred), axis=1))
+# a = np.zeros((2, 2, 2, 2))
+# a[[0, 1], [1, 0], [0, 1], [1, 0]] = np.array([1, 2])
+# print(a)
 
+# a = np.random.rand(2,2,2,2)
+# print(a)
+# print(a.ravel())
+# print(a.transpose((2, 3, 0, 1)).ravel())
 
-y_true = np.random.rand(64, 4, 1)
-y_pred = np.random.rand(64, 4, 1)
-print(-y_true * safe_log(y_pred))
-print(np.sum(-y_true * safe_log(y_pred), axis=1))
-print(np.average(np.sum(-y_true * safe_log(y_pred), axis=1)))
-print(cross_entropy_loss(y_true, y_pred))
+# a = np.empty((0, 4))
+# a = np.concatenate((a, np.random.rand(50, 4)))
+# print(a.shape)
 
-pred = np.argmax(y_true)
-print(log_loss())
+a = np.random.rand(3, 4, 1, 1)
+b = np.random.rand(50, 3, 1, 1, 1)
+
+print(np.sum(a * b, axis=1).shape)

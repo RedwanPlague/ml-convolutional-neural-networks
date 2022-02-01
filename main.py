@@ -116,7 +116,7 @@ class CIFAR10Loader(DataLoader):
             dct = pickle.load(f, encoding='bytes')
         x = dct[b'data']
         x = x.astype(float) / np.max(x)
-        x = np.reshape(x, (len(x), 3, 32, 32))
+        x = np.reshape(x, (len(x), 3, 32, 32)).T
         labels = dct[b'labels']
         y = one_hot_encode(labels)
         # y = np.expand_dims(y, axis=2)
@@ -163,6 +163,130 @@ class MNISTLoader(DataLoader):
         x_train, y_train = self.read_data('mnist/train-images.idx3-ubyte', 'mnist/train-labels.idx1-ubyte')
         x_test, y_test = self.read_data('mnist/t10k-images.idx3-ubyte', 'mnist/t10k-labels.idx1-ubyte')
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
+
+
+class Conv:
+    def __init__(self, filter_count, filter_shape, stride=1, padding=0, alpha=1e-3):
+        self.filter = np.random.rand(filter_count, *filter_shape)
+        self.bias = np.random.rand(filter_count)
+        self.stride = stride
+        self.padding = padding
+        self.alpha = alpha
+        self.x = None
+
+    def __repr__(self):
+        k, c, a, b = self.filter.shape
+        return f'Convolution {k} x {c}x{a}x{b} s{self.stride} p{self.padding}'
+
+    def forward(self, x):
+        self.x = x
+        if self.padding > 0:
+            x = np.pad(x, ((0,), (0,), (self.padding,), (self.padding,)), constant_values=0)
+        _, c, n, m = x.shape
+        f_cnt, _, a, b = self.filter.shape
+        p = (n - a) // self.stride + 1
+        q = (m - b) // self.stride + 1
+        y = np.empty((len(x), f_cnt, p, q))
+        for k in range(f_cnt):
+            i = 0
+            for yi in range(p):
+                j = 0
+                for yj in range(q):
+                    y[:, k, yi, yj] = np.sum(x[:, :, i:i+a, j:j+b] * self.filter[k], axis=(1, 2, 3)) + self.bias[k]
+                    j += self.stride
+                i += self.stride
+        return y
+
+    def build_pivot_idx(self, n, a):
+        is_pivot = np.zeros(n, dtype=bool)
+        idx = np.zeros(n, dtype=int)
+        for i in range(0, n - a + 1, self.stride):
+            is_pivot[i] = True
+            idx[i] = i // self.stride
+        return is_pivot, idx
+
+    def backward(self, dy):
+        db = np.average(dy, axis=(0, 2, 3))
+        self.bias -= self.alpha * db
+        _, c, n, m = self.x.shape
+        f_cnt, _, a, b = self.filter.shape
+        p = (n - a) // self.stride + 1
+        q = (m - b) // self.stride + 1
+        df = np.zeros_like(self.filter)
+        for k in range(f_cnt):
+            for fi in range(a):
+                for fj in range(b):
+                    i = fi
+                    for yi in range(p):
+                        j = fi
+                        for yj in range(q):
+                            df[k, :, fi, fi] += np.average(self.x[:, :, i, j] * dy[:, [k], yi, yj], axis=0)
+                            j += self.stride
+                        i += self.stride
+        df /= (p * q)
+        self.filter -= self.alpha * df
+
+        pn, pm = n + self.padding, m + self.padding
+        is_pivot_n, idx_n = self.build_pivot_idx(pn, a)
+        is_pivot_m, idx_m = self.build_pivot_idx(pm, b)
+
+        dy = np.expand_dims(dy, axis=2)
+
+        dx = np.zeros_like(self.x)
+        for i in range(n):
+            for j in range(m):
+                pi, pj = i + self.padding, j + self.padding
+                wi = a - 1
+                for xi in range(pi, max(pi - a, -1), -1):
+                    wj = b - 1
+                    for xj in range(pj, max(pj - b, -1), -1):
+                        if is_pivot_n[xi] and is_pivot_m[xj]:
+                            f_slc = self.filter[:, :, wi, wj]
+                            dy_slc = dy[:, :, :, idx_n[xi], idx_m[xj]]
+                            dx[:, :, i, j] += np.sum(f_slc * dy_slc, axis=1)
+                        wj -= 1
+                    wi -= 1
+        return dx
+
+
+class Pool:
+    def __init__(self, shape, stride=1):
+        self.shape = shape
+        self.stride = stride
+        self.x_shape = None
+        self.idx = None
+
+    def __repr__(self):
+        a, b = self.shape
+        return f'Max Pool {a}x{b} s{self.stride}'
+
+    def forward(self, x):
+        self.x_shape = x.shape
+        _, c, n, m = x.shape
+        a, b = self.shape
+        p = (n - a) // self.stride + 1
+        q = (m - b) // self.stride + 1
+        y = np.empty((len(x), c, p, q))
+        self.idx = np.empty((0, 4), dtype=int)
+
+        i = 0
+        for yi in range(p):
+            j = 0
+            for yj in range(q):
+                slc = x[:, :, i:i+a, j:j+b]
+                mx = np.max(slc, axis=(2, 3), keepdims=True)
+                y[:, :, yi, yj] = np.squeeze(mx)
+                idx = np.argwhere(slc == mx)
+                self.idx = np.concatenate((self.idx, idx))
+                j += self.stride
+            i += self.stride
+        return y
+
+    def backward(self, dy):
+        dx = np.zeros(self.x_shape)
+        i = self.idx
+        dx[i[:, 0], i[:, 1], i[:, 2], i[:, 3]] = dy.transpose((2, 3, 0, 1)).ravel()
+        return dx
 
 
 class Flatten:
@@ -247,7 +371,32 @@ class Model:
             for line in f:
                 layer_data = line.split()
                 layer_name = layer_data[0]
-                if layer_name == 'FC':
+                if layer_name == 'Conv':
+                    filter_count = int(layer_data[1])
+                    filter_dim = int(layer_data[2])
+                    stride = int(layer_data[3])
+                    padding = int(layer_data[4])
+                    filter_shape = (in_dim[0], filter_dim, filter_dim)
+                    self.layers.append(Conv(filter_count, filter_shape, stride, padding))
+                    in_dim = (
+                        filter_count,
+                        (in_dim[1] + 2 * padding - filter_shape[1]) // stride + 1,
+                        (in_dim[2] + 2 * padding - filter_shape[2]) // stride + 1
+                    )
+                elif layer_name == 'Pool':
+                    filter_dim = int(layer_data[1])
+                    stride = int(layer_data[2])
+                    filter_shape = (filter_dim, filter_dim)
+                    self.layers.append(Pool(filter_shape, stride))
+                    in_dim = (
+                        in_dim[0],
+                        (in_dim[1] - filter_shape[0]) // stride + 1,
+                        (in_dim[2] - filter_shape[1]) // stride + 1
+                    )
+                elif layer_name == 'FC':
+                    if len(in_dim) > 1:
+                        self.layers.append(Flatten())
+                        in_dim = (product(in_dim),)
                     out_dim = (int(layer_data[1]),)
                     self.layers.append(Dense(in_dim[0], out_dim[0], alpha))
                     in_dim = out_dim
@@ -264,14 +413,18 @@ class Model:
 
     def forward(self, x):
         out = x
+        print(f'f = {out.shape}')
         for layer in self.layers:
             out = layer.forward(out)
+            print(f'f = {out.shape}')
         return out
 
     def backward(self, y):
         grad = y
+        print(f'g = {grad.shape}')
         for layer in reversed(self.layers):
             grad = layer.backward(grad)
+            print(f'g = {grad.shape}')
 
 
 def calc_metrics(model, data):
@@ -323,16 +476,27 @@ def main():
         'alpha': 1e-2
     }
 
+    x = np.random.rand(50, 1, 28, 28)
+    y = np.random.rand(50, 10)
+    model = Model(arch_file, (1, 28, 28), params['alpha'])
+    print(model)
+    model.forward(x)
+    model.backward(y)
+
     # dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
-    dataloader = MNISTLoader(params['batch_size'])
+    # dataloader = MNISTLoader(params['batch_size'])
     # dataloader.draw_img(0)
 
-    model = Model(arch_file, dataloader.shape(), params['alpha'])
-    print(model)
+    # model = Model(arch_file, dataloader.shape(), params['alpha'])
+    # print(model)
 
-    metrics = train(model, dataloader, params['epochs'])
-    log(arch_file, params, metrics)
+    # x, y = dataloader.train_data()
+    # yp = model.forward(x[0:5])
+    # print(f'yp shape = {yp.shape}')
+
+    # metrics = train(model, dataloader, params['epochs'])
+    # log(arch_file, params, metrics)
 
 
 if __name__ == '__main__':
