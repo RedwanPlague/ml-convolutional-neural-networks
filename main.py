@@ -168,8 +168,8 @@ class MNISTLoader(DataLoader):
 
 class Conv:
     def __init__(self, filter_count, filter_shape, stride=1, padding=0, alpha=1e-3):
-        self.filter = np.random.rand(filter_count, *filter_shape)
-        self.bias = np.random.rand(filter_count)
+        self.filter = np.random.rand(*filter_shape, filter_count)
+        self.bias = np.random.rand(filter_count, 1)
         self.stride = stride
         self.padding = padding
         self.alpha = alpha
@@ -177,78 +177,76 @@ class Conv:
         self.x = None
 
     def __repr__(self):
-        k, c, a, b = self.filter.shape
-        return f'Convolution {k} x {c}x{a}x{b} s{self.stride} p{self.padding}'
+        k, a, b, c = self.filter.shape
+        return f'Convolution {k} x {a}x{b}x{c} s{self.stride} p{self.padding}'
 
     def forward(self, x):
         self.x_act_shape = x.shape
         if self.padding > 0:
-            x = np.pad(x, ((0,), (0,), (self.padding,), (self.padding,)), constant_values=0)
+            x = np.pad(x, ((self.padding,), (self.padding,), (0, ), (0, )), constant_values=0)
         self.x = x
-        _, c, n, m = x.shape
-        f_cnt, _, a, b = self.filter.shape
+        n, m, c, _ = x.shape
+        a, b, _, f_cnt = self.filter.shape
         p = (n - a) // self.stride + 1
         q = (m - b) // self.stride + 1
-        y = np.empty((len(x), f_cnt, p, q))
-        for k in range(f_cnt):
-            i = 0
-            for yi in range(p):
-                j = 0
-                for yj in range(q):
-                    y[:, k, yi, yj] = np.sum(x[:, :, i:i+a, j:j+b] * self.filter[k], axis=(1, 2, 3)) + self.bias[k]
-                    j += self.stride
-                i += self.stride
+        y = np.empty((p, q, f_cnt, x.shape[-1]))
+        x = np.expand_dims(x, axis=-2)
+        f = np.expand_dims(self.filter, axis=-1)
+        i = 0
+        for yi in range(p):
+            j = 0
+            for yj in range(q):
+                y[yi, yj, :, :] = np.sum(x[i:i+a, j:j+b, :, :, :] * f, axis=(0, 1, 2)) + self.bias
+                j += self.stride
+            i += self.stride
         return y
 
-    def build_pivot_idx(self, n, a):
-        is_pivot = np.zeros(n, dtype=bool)
-        idx = np.zeros(n, dtype=int)
-        for i in range(0, n - a + 1, self.stride):
-            is_pivot[i] = True
-            idx[i] = i // self.stride
-        return is_pivot, idx
-
     def backward(self, dy):
-        db = np.average(dy, axis=(0, 2, 3))
+        db = np.expand_dims(np.average(dy, axis=(0, 1, 3)), axis=-1)
         self.bias -= self.alpha * db
-        _, c, n, m = self.x.shape
-        f_cnt, _, a, b = self.filter.shape
-        _, _, p, q = dy.shape
-        df = np.zeros_like(self.filter)
-        for k in range(f_cnt):
-            for fi in range(a):
-                for fj in range(b):
-                    i = fi
-                    for yi in range(p):
-                        j = fj
-                        for yj in range(q):
-                            df[k, :, fi, fj] += np.average(self.x[:, :, i, j] * dy[:, [k], yi, yj], axis=0)
-                            j += self.stride
-                        i += self.stride
-        df /= (p * q)
+        n, m, c, _ = self.x.shape
+        a, b, f_cnt, _ = self.filter.shape
+        p, q, _, _ = dy.shape
+        df = np.empty(self.filter.shape)
+        x = np.expand_dims(self.x, axis=3)
+        dy = np.expand_dims(dy, axis=2)
+        s = self.stride
+        ps, qs = p*s, q*s
+        for fi in range(a):
+            for fj in range(b):
+                df[fi, fj, :, :] = np.average(x[fi:fi+ps:s, fj:fj+qs:s, :, :, :]
+                                              * dy[:p, :q, :, :, :], axis=(0, 1, 4))
         self.filter -= self.alpha * df
 
-        _, _, n, m = self.x_act_shape
+        an, am, _, _ = self.x_act_shape
         dx = np.zeros(self.x_act_shape)
-        dy = np.expand_dims(dy, axis=2)
+        f = np.expand_dims(self.filter, axis=4)
 
-        pn, pm = n + self.padding, m + self.padding
-        is_pivot_n, idx_n = self.build_pivot_idx(pn, a)
-        is_pivot_m, idx_m = self.build_pivot_idx(pm, b)
-
-        for i in range(n):
-            for j in range(m):
-                pi, pj = i + self.padding, j + self.padding
-                wi = a - 1
-                for xi in range(pi, max(pi - a, -1), -1):
-                    wj = b - 1
-                    for xj in range(pj, max(pj - b, -1), -1):
-                        if is_pivot_n[xi] and is_pivot_m[xj]:
-                            f_slc = self.filter[:, :, wi, wj]
-                            dy_slc = dy[:, :, :, idx_n[xi], idx_m[xj]]
-                            dx[:, :, i, j] += np.sum(f_slc * dy_slc, axis=1)
-                        wj -= 1
-                    wi -= 1
+        for i in range(an):
+            for j in range(am):
+                wk = np.zeros(2, dtype=int)
+                bk = np.array([i, j], dtype=int)
+                bk += self.padding
+                dk = bk % s
+                wk += dk
+                bk -= dk
+                bi, bj = bk // s
+                wi, wj = wk
+                while bi + a > n and wi < a and bi >= 0:
+                    bi -= 1
+                    wi += s
+                while bj + b > m and wj < b and bj >= 0:
+                    bj -= 1
+                    wj += s
+                if bi < 0 or bj < 0 or wi >= a or wj >= b:
+                    continue
+                lik = min(len(range(wi, a, s)) - 1, bi)
+                ljk = min(len(range(wj, b, s)) - 1, bj)
+                ewi, ewj = wi + lik * s, wj + ljk * s
+                tbi, tbj = bi - lik, bj - ljk
+                f_slc = np.flip(f[wi:ewi+1:s, wj:ewj+1:s, :, :, :], axis=(0, 1))
+                dy_slc = dy[tbi:bi+1, tbj:bj+1, :, :, :]
+                dx[i, j, :, :] += np.sum(f_slc * dy_slc, axis=(0, 1, 3))
         return dx
 
 
@@ -265,31 +263,20 @@ class Pool:
 
     def forward(self, x):
         self.x_shape = x.shape
-        points, c, n, m = x.shape
+        n, m, c, points = x.shape
         a, b = self.shape
         p = (n - a) // self.stride + 1
         q = (m - b) // self.stride + 1
-        y = np.empty((len(x), c, p, q))
-        # self.idx = np.empty((0, 4), dtype=int)
+        y = np.empty((p, q, c, x.shape[-1]))
         self.idx = np.empty(y.shape, dtype=int)
 
-        for pnt in range(points):
-            for ch in range(c):
-                i = 0
-                for yi in range(p):
-                    j = 0
-                    for yj in range(q):
-                        slc = x[pnt, ch, i:i+a, j:j+b]
-                        mx = np.max(slc)
-                        y[pnt, ch, yi, yj] = mx
-                        self.idx[pnt, ch, yi, yj] = np.argmax(slc)
-                        # slc = x[:, :, i:i+a, j:j+b]
-                        # mx = np.max(slc, axis=(2, 3), keepdims=True)
-                        # y[:, :, yi, yj] = np.squeeze(mx)
-                        # idx = np.argwhere(slc == mx)
-                        # self.idx = np.concatenate((self.idx, idx))
-                        j += self.stride
-                    i += self.stride
+        for yi in range(p):
+            i = yi * self.stride
+            for yj in range(q):
+                j = yj * self.stride
+                slc = x[i:i+a, j:j+b, :, :]
+                mx = np.max(slc, axis=(0, 1))
+                y[yi, yj, :, :] = mx
         return y
 
     def backward(self, dy):
@@ -301,8 +288,6 @@ class Pool:
                     for yj in range(q):
                         i, j = np.unravel_index(self.idx[pnt, ch, yi, yj], (p, q))
                         dx[pnt, ch, i, j] += dy[pnt, ch, yi, yj]
-        # i = self.idx
-        # dx[i[:, 0], i[:, 1], i[:, 2], i[:, 3]] = dy.transpose((2, 3, 0, 1)).ravel()
         return dx
 
 
@@ -495,11 +480,38 @@ def main():
         'alpha': 1e-2
     }
 
-    x = np.random.rand(50, 3, 32, 32)
-    y = np.random.rand(50, 10)
-    model = Model(arch_file, x[0].shape, params['alpha'])
-    model.forward(x)
-    model.backward(y)
+    # x = np.random.rand(50, 3, 32, 32)
+    # y = np.random.rand(50, 10)
+    # model = Model(arch_file, x[0].shape, params['alpha'])
+    # model.forward(x)
+    # model.backward(y)
+
+    x = np.random.rand(28, 28, 3, 32)
+    y = None
+
+    n = 1
+
+    # conv = Conv(3, (3, 3, 3), 1, 1)
+    # b = time.time()
+    # for _ in range(n):
+    #     y = conv.forward(x)
+    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+
+    # b = time.time()
+    # for _ in range(n):
+    #     conv.backward(y)
+    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+
+    pool = Pool((1, 1), 1)
+    b = time.time()
+    for _ in range(n):
+        y = pool.forward(x)
+    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+
+    # b = time.time()
+    # for _ in range(n):
+    #     pool.backward(y)
+    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
     # dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
