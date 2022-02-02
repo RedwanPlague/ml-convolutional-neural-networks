@@ -267,28 +267,33 @@ class Pool:
         a, b = self.shape
         p = (n - a) // self.stride + 1
         q = (m - b) // self.stride + 1
-        y = np.empty((p, q, c, x.shape[-1]))
-        self.idx = np.empty(y.shape, dtype=int)
+        y = np.empty((p, q, c, points))
+
+        d_lim = c * points
+        self.idx = np.empty((p, q, d_lim), dtype=int)
 
         for yi in range(p):
             i = yi * self.stride
             for yj in range(q):
                 j = yj * self.stride
                 slc = x[i:i+a, j:j+b, :, :]
-                mx = np.max(slc, axis=(0, 1))
-                y[yi, yj, :, :] = mx
+                y[yi, yj, :, :] = np.max(slc, axis=(0, 1))
+                self.idx[yi, yj, :] = np.argmax(slc.reshape(a*b, d_lim), axis=0)
         return y
 
     def backward(self, dy):
-        dx = np.zeros(self.x_shape)
-        points, c, p, q = dy.shape
-        for pnt in range(points):
-            for ch in range(c):
-                for yi in range(p):
-                    for yj in range(q):
-                        i, j = np.unravel_index(self.idx[pnt, ch, yi, yj], (p, q))
-                        dx[pnt, ch, i, j] += dy[pnt, ch, yi, yj]
-        return dx
+        p, q, _, _ = dy.shape
+        n, m, c, points = self.x_shape
+        l_dim = c * points
+        dy = np.reshape(dy, (p, q, -1))
+        dx = np.zeros((n, m, l_dim))
+        for yi in range(p):
+            for yj in range(q):
+                i, j = np.unravel_index(self.idx[yi, yj, :], self.shape)
+                i += yi * self.stride
+                j += yj * self.stride
+                dx[i, j, np.arange(l_dim)] += dy[yi, yj, :]
+        return dx.reshape(self.x_shape)
 
 
 class Flatten:
@@ -300,7 +305,7 @@ class Flatten:
 
     def forward(self, x):
         self.x_shape = x.shape
-        return np.reshape(x, (len(x), -1))
+        return np.reshape(x, (-1, x.shape[-1]))
 
     def backward(self, dy):
         return np.reshape(dy, self.x_shape)
@@ -308,25 +313,25 @@ class Flatten:
 
 class Dense:
     def __init__(self, in_dim, out_dim, alpha=1e-3):
-        self.weight = np.random.rand(in_dim, out_dim) * 0.001
+        self.weight = np.random.rand(out_dim, in_dim) * 0.001
         self.bias = np.random.rand(out_dim) * 0.001
         self.alpha = alpha
         self.x = None
 
     def __repr__(self):
-        in_dim, out_dim = self.weight.shape
+        out_dim, in_dim = self.weight.shape
         return f'Dense {in_dim} -> {out_dim}'
 
     def forward(self, x):
         self.x = x
-        return x @ self.weight + self.bias
+        return self.weight @ x + self.bias
 
     def backward(self, dy):
-        dw = self.x.T @ dy
-        db = np.average(dy, axis=0)
+        dw = dy @ self.x.T
+        db = np.average(dy, axis=-1)
         self.weight -= self.alpha * dw
         self.bias -= self.alpha * db
-        return dy @ self.weight.T
+        return self.weight.T @ dy
 
 
 class ReLU:
@@ -355,7 +360,7 @@ class Softmax:
     def forward(self, x):
         x -= np.max(x)
         y = np.exp(x)
-        s = np.sum(y, axis=1, keepdims=True)
+        s = np.sum(y, axis=0, keepdims=True)
         s[s == 0] = 1
         y /= s
         self.y = y
@@ -476,20 +481,20 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 5,
+        'epochs': 1,
         'alpha': 1e-2
     }
 
-    # x = np.random.rand(50, 3, 32, 32)
-    # y = np.random.rand(50, 10)
-    # model = Model(arch_file, x[0].shape, params['alpha'])
-    # model.forward(x)
-    # model.backward(y)
+    x = np.random.rand(32, 32, 3, 50)
+    y = np.random.rand(10, 50)
+    model = Model(arch_file, x[0].shape, params['alpha'])
+    model.forward(x)
+    model.backward(y)
 
-    x = np.random.rand(28, 28, 3, 32)
-    y = None
+    # x = np.random.rand(28, 28, 3, 500)
+    # y = None
 
-    n = 1
+    # n = 5
 
     # conv = Conv(3, (3, 3, 3), 1, 1)
     # b = time.time()
@@ -502,11 +507,11 @@ def main():
     #     conv.backward(y)
     # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
-    pool = Pool((1, 1), 1)
-    b = time.time()
-    for _ in range(n):
-        y = pool.forward(x)
-    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    # pool = Pool((2, 2), 2)
+    # b = time.time()
+    # for _ in range(n):
+    #     y = pool.forward(x)
+    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
     # b = time.time()
     # for _ in range(n):
