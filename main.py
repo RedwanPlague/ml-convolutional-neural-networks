@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import sklearn.metrics as sm
 import pickle
 from mlxtend.data import loadlocal_mnist
+import time
 
 np.random.seed(4)
 
@@ -172,6 +173,7 @@ class Conv:
         self.stride = stride
         self.padding = padding
         self.alpha = alpha
+        self.x_act_shape = None
         self.x = None
 
     def __repr__(self):
@@ -179,9 +181,10 @@ class Conv:
         return f'Convolution {k} x {c}x{a}x{b} s{self.stride} p{self.padding}'
 
     def forward(self, x):
-        self.x = x
+        self.x_act_shape = x.shape
         if self.padding > 0:
             x = np.pad(x, ((0,), (0,), (self.padding,), (self.padding,)), constant_values=0)
+        self.x = x
         _, c, n, m = x.shape
         f_cnt, _, a, b = self.filter.shape
         p = (n - a) // self.stride + 1
@@ -210,29 +213,29 @@ class Conv:
         self.bias -= self.alpha * db
         _, c, n, m = self.x.shape
         f_cnt, _, a, b = self.filter.shape
-        p = (n - a) // self.stride + 1
-        q = (m - b) // self.stride + 1
+        _, _, p, q = dy.shape
         df = np.zeros_like(self.filter)
         for k in range(f_cnt):
             for fi in range(a):
                 for fj in range(b):
                     i = fi
                     for yi in range(p):
-                        j = fi
+                        j = fj
                         for yj in range(q):
-                            df[k, :, fi, fi] += np.average(self.x[:, :, i, j] * dy[:, [k], yi, yj], axis=0)
+                            df[k, :, fi, fj] += np.average(self.x[:, :, i, j] * dy[:, [k], yi, yj], axis=0)
                             j += self.stride
                         i += self.stride
         df /= (p * q)
         self.filter -= self.alpha * df
 
+        _, _, n, m = self.x_act_shape
+        dx = np.zeros(self.x_act_shape)
+        dy = np.expand_dims(dy, axis=2)
+
         pn, pm = n + self.padding, m + self.padding
         is_pivot_n, idx_n = self.build_pivot_idx(pn, a)
         is_pivot_m, idx_m = self.build_pivot_idx(pm, b)
 
-        dy = np.expand_dims(dy, axis=2)
-
-        dx = np.zeros_like(self.x)
         for i in range(n):
             for j in range(m):
                 pi, pj = i + self.padding, j + self.padding
@@ -262,30 +265,44 @@ class Pool:
 
     def forward(self, x):
         self.x_shape = x.shape
-        _, c, n, m = x.shape
+        points, c, n, m = x.shape
         a, b = self.shape
         p = (n - a) // self.stride + 1
         q = (m - b) // self.stride + 1
         y = np.empty((len(x), c, p, q))
-        self.idx = np.empty((0, 4), dtype=int)
+        # self.idx = np.empty((0, 4), dtype=int)
+        self.idx = np.empty(y.shape, dtype=int)
 
-        i = 0
-        for yi in range(p):
-            j = 0
-            for yj in range(q):
-                slc = x[:, :, i:i+a, j:j+b]
-                mx = np.max(slc, axis=(2, 3), keepdims=True)
-                y[:, :, yi, yj] = np.squeeze(mx)
-                idx = np.argwhere(slc == mx)
-                self.idx = np.concatenate((self.idx, idx))
-                j += self.stride
-            i += self.stride
+        for pnt in range(points):
+            for ch in range(c):
+                i = 0
+                for yi in range(p):
+                    j = 0
+                    for yj in range(q):
+                        slc = x[pnt, ch, i:i+a, j:j+b]
+                        mx = np.max(slc)
+                        y[pnt, ch, yi, yj] = mx
+                        self.idx[pnt, ch, yi, yj] = np.argmax(slc)
+                        # slc = x[:, :, i:i+a, j:j+b]
+                        # mx = np.max(slc, axis=(2, 3), keepdims=True)
+                        # y[:, :, yi, yj] = np.squeeze(mx)
+                        # idx = np.argwhere(slc == mx)
+                        # self.idx = np.concatenate((self.idx, idx))
+                        j += self.stride
+                    i += self.stride
         return y
 
     def backward(self, dy):
         dx = np.zeros(self.x_shape)
-        i = self.idx
-        dx[i[:, 0], i[:, 1], i[:, 2], i[:, 3]] = dy.transpose((2, 3, 0, 1)).ravel()
+        points, c, p, q = dy.shape
+        for pnt in range(points):
+            for ch in range(c):
+                for yi in range(p):
+                    for yj in range(q):
+                        i, j = np.unravel_index(self.idx[pnt, ch, yi, yj], (p, q))
+                        dx[pnt, ch, i, j] += dy[pnt, ch, yi, yj]
+        # i = self.idx
+        # dx[i[:, 0], i[:, 1], i[:, 2], i[:, 3]] = dy.transpose((2, 3, 0, 1)).ravel()
         return dx
 
 
@@ -415,16 +432,18 @@ class Model:
         out = x
         print(f'f = {out.shape}')
         for layer in self.layers:
+            b = time.time()
             out = layer.forward(out)
-            print(f'f = {out.shape}')
+            print(f'f = {out.shape}, time = {time.time() - b:.6f} {layer}')
         return out
 
     def backward(self, y):
         grad = y
         print(f'g = {grad.shape}')
         for layer in reversed(self.layers):
+            b = time.time()
             grad = layer.backward(grad)
-            print(f'g = {grad.shape}')
+            print(f'g = {grad.shape}, time = {time.time() - b:.6f} {layer}')
 
 
 def calc_metrics(model, data):
@@ -476,10 +495,9 @@ def main():
         'alpha': 1e-2
     }
 
-    x = np.random.rand(50, 1, 28, 28)
+    x = np.random.rand(50, 3, 32, 32)
     y = np.random.rand(50, 10)
-    model = Model(arch_file, (1, 28, 28), params['alpha'])
-    print(model)
+    model = Model(arch_file, x[0].shape, params['alpha'])
     model.forward(x)
     model.backward(y)
 
@@ -490,10 +508,6 @@ def main():
 
     # model = Model(arch_file, dataloader.shape(), params['alpha'])
     # print(model)
-
-    # x, y = dataloader.train_data()
-    # yp = model.forward(x[0:5])
-    # print(f'yp shape = {yp.shape}')
 
     # metrics = train(model, dataloader, params['epochs'])
     # log(arch_file, params, metrics)

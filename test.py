@@ -91,7 +91,9 @@ from sklearn.metrics import log_loss, accuracy_score, f1_score
 # a = np.concatenate((a, np.random.rand(50, 4)))
 # print(a.shape)
 
-a = np.random.rand(3, 4, 1, 1)
-b = np.random.rand(50, 3, 1, 1, 1)
+# a = np.random.rand(3, 4, 1, 1)
+# b = np.random.rand(50, 3, 1, 1, 1)
+# print(np.sum(a * b, axis=1).shape)
 
-print(np.sum(a * b, axis=1).shape)
+a = np.array([[1, 2], [3, 4]])
+print(np.unravel_index(np.argmax(a), a.shape))
