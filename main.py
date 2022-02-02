@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import sklearn.metrics as sm
 import pickle
 from mlxtend.data import loadlocal_mnist
-import time
 
 np.random.seed(4)
 
@@ -97,10 +96,10 @@ class ToyDataLoader(DataLoader):
         return x, y
 
     def __init__(self, batch_size):
-        # x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
-        # x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
-        x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
-        x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
+        x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
+        x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
+        # x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
+        # x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -313,8 +312,8 @@ class Flatten:
 
 class Dense:
     def __init__(self, in_dim, out_dim, alpha=1e-3):
-        self.weight = np.random.rand(out_dim, in_dim) * 0.001
-        self.bias = np.random.rand(out_dim, 1) * 0.001
+        self.weight = np.random.rand(out_dim, in_dim)
+        self.bias = np.random.rand(out_dim, 1)
         self.alpha = alpha
         self.x = None
 
@@ -337,7 +336,7 @@ class Dense:
 class ReLU:
     def __init__(self):
         self.x = None
-        self.m = 0.001
+        self.m = 1
 
     def __repr__(self):
         return 'ReLU'
@@ -421,14 +420,12 @@ class Model:
     def forward(self, x):
         out = x
         for layer in self.layers:
-            b = time.time()
             out = layer.forward(out)
         return out
 
     def backward(self, y):
         grad = y
         for layer in reversed(self.layers):
-            b = time.time()
             grad = layer.backward(grad)
 
 
@@ -477,7 +474,7 @@ def main():
     params = {
         'batch_size': 500,
         'epochs': 100,
-        'alpha': 1
+        'alpha': 1e-2
     }
 
     # x = np.random.rand(32, 32, 3, 50)
