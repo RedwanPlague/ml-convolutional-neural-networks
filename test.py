@@ -124,9 +124,12 @@ from sklearn.metrics import log_loss, accuracy_score, f1_score
 # print((arg1[arg2], arg2))
 # print(np.unravel_index(np.argmax(a), a.shape))
 
-a = np.random.rand(6, 4, 5)
-print(a)
-i = np.argmax(a, axis=0)
-print(i)
-print(a[[1, 2, 3], [1, 2, 3], :].shape)
-print(a)
+# a = np.random.rand(6, 4, 5)
+# print(a)
+# i = np.argmax(a, axis=0)
+# print(i)
+# print(a[[1, 2, 3], [1, 2, 3], :].shape)
+# print(a)
+
+a = [1, 2, 3]
+print(a[:-2])

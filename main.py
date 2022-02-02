@@ -51,26 +51,26 @@ class DataLoader:
         self.cur = 0
         self.x_train = x_train
         self.y_train = y_train
-        m = len(x_test) // 2
-        # m = len(x_test)
-        self.x_val = x_test[:m]
-        self.y_val = y_test[:m]
-        self.x_test = x_test[m:]
-        self.y_test = y_test[m:]
+        # m = len(x_test) // 2
+        m = len(x_test)
+        self.x_val = x_test[..., :m]
+        self.y_val = y_test[..., :m]
+        self.x_test = x_test[..., m:]
+        self.y_test = y_test[..., m:]
 
     def shape(self):
-        return self.x_train[0].shape
+        return self.x_train.shape[:-1]
 
     def reset(self):
         self.cur = 0
 
     def next(self):
-        return self.cur < len(self.x_train)
+        return self.cur < self.x_train.shape[-1]
 
     def next_train_batch(self):
         end = self.cur + self.batch_size
-        x_train_batch = self.x_train[self.cur: end]
-        y_train_batch = self.y_train[self.cur: end]
+        x_train_batch = self.x_train[..., self.cur: end]
+        y_train_batch = self.y_train[..., self.cur: end]
         self.cur = end
         return x_train_batch, y_train_batch
 
@@ -90,17 +90,17 @@ class ToyDataLoader(DataLoader):
         df = pd.read_csv(data_file, delim_whitespace=True, header=None)
         df = df.sample(frac=1)  # shuffle data
         x = np.array(df.iloc[:, :-1])
-        x = x.astype(float) / np.max(x)
+        x = x.astype(float).T / np.max(x)
         y = np.array(df.iloc[:, -1])
-        y = np.array(pd.get_dummies(y))
+        y = np.array(pd.get_dummies(y)).T
         print(x.shape, y.shape)
         return x, y
 
     def __init__(self, batch_size):
-        x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
-        x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
-        # x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
-        # x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
+        # x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
+        # x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
+        x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
+        x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -420,20 +420,16 @@ class Model:
 
     def forward(self, x):
         out = x
-        print(f'f = {out.shape}')
         for layer in self.layers:
             b = time.time()
             out = layer.forward(out)
-            print(f'f = {out.shape}, time = {time.time() - b:.6f} {layer}')
         return out
 
     def backward(self, y):
         grad = y
-        print(f'g = {grad.shape}')
         for layer in reversed(self.layers):
             b = time.time()
             grad = layer.backward(grad)
-            print(f'g = {grad.shape}, time = {time.time() - b:.6f} {layer}')
 
 
 def calc_metrics(model, data):
@@ -453,7 +449,6 @@ def train(model, dataloader, epochs=5):
             x, y = dataloader.next_train_batch()
             model.forward(x)
             model.backward(y)
-        print(i)
         t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
         v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
         # print(f't_loss: {t_loss:>2.2f}, t_acc: {t_acc:>2.2f}, t_f1: {t_f1:>2.2f}')
@@ -481,15 +476,15 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 1,
-        'alpha': 1e-2
+        'epochs': 100,
+        'alpha': 1
     }
 
-    x = np.random.rand(32, 32, 3, 50)
-    y = np.random.rand(10, 50)
-    model = Model(arch_file, x.shape[:3], params['alpha'])
-    model.forward(x)
-    model.backward(y)
+    # x = np.random.rand(32, 32, 3, 50)
+    # y = np.random.rand(10, 50)
+    # model = Model(arch_file, x.shape[:3], params['alpha'])
+    # model.forward(x)
+    # model.backward(y)
 
     # x = np.random.rand(28, 28, 3, 500)
     # y = None
@@ -518,16 +513,16 @@ def main():
     #     pool.backward(y)
     # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
-    # dataloader = ToyDataLoader(params['batch_size'])
+    dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
     # dataloader = MNISTLoader(params['batch_size'])
     # dataloader.draw_img(0)
 
-    # model = Model(arch_file, dataloader.shape(), params['alpha'])
-    # print(model)
+    model = Model(arch_file, dataloader.shape(), params['alpha'])
+    print(model)
 
-    # metrics = train(model, dataloader, params['epochs'])
-    # log(arch_file, params, metrics)
+    metrics = train(model, dataloader, params['epochs'])
+    log(arch_file, params, metrics)
 
 
 if __name__ == '__main__':
