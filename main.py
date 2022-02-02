@@ -314,7 +314,7 @@ class Flatten:
 class Dense:
     def __init__(self, in_dim, out_dim, alpha=1e-3):
         self.weight = np.random.rand(out_dim, in_dim) * 0.001
-        self.bias = np.random.rand(out_dim) * 0.001
+        self.bias = np.random.rand(out_dim, 1) * 0.001
         self.alpha = alpha
         self.x = None
 
@@ -328,7 +328,7 @@ class Dense:
 
     def backward(self, dy):
         dw = dy @ self.x.T
-        db = np.average(dy, axis=-1)
+        db = np.expand_dims(np.average(dy, axis=-1), axis=-1)
         self.weight -= self.alpha * dw
         self.bias -= self.alpha * db
         return self.weight.T @ dy
@@ -383,12 +383,12 @@ class Model:
                     filter_dim = int(layer_data[2])
                     stride = int(layer_data[3])
                     padding = int(layer_data[4])
-                    filter_shape = (in_dim[0], filter_dim, filter_dim)
+                    filter_shape = (filter_dim, filter_dim, in_dim[2])
                     self.layers.append(Conv(filter_count, filter_shape, stride, padding))
                     in_dim = (
-                        filter_count,
+                        (in_dim[0] + 2 * padding - filter_shape[0]) // stride + 1,
                         (in_dim[1] + 2 * padding - filter_shape[1]) // stride + 1,
-                        (in_dim[2] + 2 * padding - filter_shape[2]) // stride + 1
+                        filter_count
                     )
                 elif layer_name == 'Pool':
                     filter_dim = int(layer_data[1])
@@ -396,9 +396,9 @@ class Model:
                     filter_shape = (filter_dim, filter_dim)
                     self.layers.append(Pool(filter_shape, stride))
                     in_dim = (
-                        in_dim[0],
-                        (in_dim[1] - filter_shape[0]) // stride + 1,
-                        (in_dim[2] - filter_shape[1]) // stride + 1
+                        (in_dim[0] - filter_shape[0]) // stride + 1,
+                        (in_dim[1] - filter_shape[1]) // stride + 1,
+                        in_dim[2]
                     )
                 elif layer_name == 'FC':
                     if len(in_dim) > 1:
@@ -487,7 +487,7 @@ def main():
 
     x = np.random.rand(32, 32, 3, 50)
     y = np.random.rand(10, 50)
-    model = Model(arch_file, x[0].shape, params['alpha'])
+    model = Model(arch_file, x.shape[:3], params['alpha'])
     model.forward(x)
     model.backward(y)
 
