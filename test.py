@@ -95,5 +95,41 @@ from sklearn.metrics import log_loss, accuracy_score, f1_score
 # b = np.random.rand(50, 3, 1, 1, 1)
 # print(np.sum(a * b, axis=1).shape)
 
-a = np.array([[1, 2], [3, 4]])
-print(np.unravel_index(np.argmax(a), a.shape))
+# a = np.array([[1, 2], [3, 4]])
+# print(np.unravel_index(np.argmax(a), a.shape))
+
+# print(np.dot(np.random.rand(3,4,5,6), np.random.rand(3,4,5,7)).shape)
+
+# a = np.array([
+#     [1, 2, 3],
+#     [4, 5, 6],
+#     [7, 8, 9],
+# ])
+# print(np.flip(a, axis=(0, 1)))
+
+# print(len(range(8, 15, 2)))
+
+# a = np.array([
+#     [1, 10],
+#     [20, 3]
+# ])
+# print(a)
+# mx1 = np.max(a, axis=0)
+# arg1 = np.argmax(a, axis=0)
+# print(mx1, arg1)
+# mx2 = np.max(mx1, axis=0)
+# arg2 = np.argmax(mx1, axis=0)
+# print(mx2, arg2)
+#
+# print((arg1[arg2], arg2))
+# print(np.unravel_index(np.argmax(a), a.shape))
+
+# a = np.random.rand(6, 4, 5)
+# print(a)
+# i = np.argmax(a, axis=0)
+# print(i)
+# print(a[[1, 2, 3], [1, 2, 3], :].shape)
+# print(a)
+
+a = [1, 2, 3]
+print(a[:-2])
