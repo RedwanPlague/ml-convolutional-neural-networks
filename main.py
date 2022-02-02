@@ -51,8 +51,8 @@ class DataLoader:
         self.cur = 0
         self.x_train = x_train
         self.y_train = y_train
-        m = len(x_test) // 2
-        # m = len(x_test)
+        # m = len(x_test) // 2
+        m = len(x_test)
         self.x_val = x_test[:m]
         self.y_val = y_test[:m]
         self.x_test = x_test[m:]
@@ -97,10 +97,10 @@ class ToyDataLoader(DataLoader):
         return x, y
 
     def __init__(self, batch_size):
-        x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
-        x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
-        # x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
-        # x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
+        # x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
+        # x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
+        x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
+        x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -491,26 +491,26 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 5,
-        'alpha': 1e-2
+        'epochs': 100,
+        'alpha': 1
     }
 
-    x = np.random.rand(50, 3, 32, 32)
-    y = np.random.rand(50, 10)
-    model = Model(arch_file, x[0].shape, params['alpha'])
-    model.forward(x)
-    model.backward(y)
+    # x = np.random.rand(50, 3, 32, 32)
+    # y = np.random.rand(50, 10)
+    # model = Model(arch_file, x[0].shape, params['alpha'])
+    # model.forward(x)
+    # model.backward(y)
 
-    # dataloader = ToyDataLoader(params['batch_size'])
+    dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
     # dataloader = MNISTLoader(params['batch_size'])
     # dataloader.draw_img(0)
 
-    # model = Model(arch_file, dataloader.shape(), params['alpha'])
-    # print(model)
+    model = Model(arch_file, dataloader.shape(), params['alpha'])
+    print(model)
 
-    # metrics = train(model, dataloader, params['epochs'])
-    # log(arch_file, params, metrics)
+    metrics = train(model, dataloader, params['epochs'])
+    log(arch_file, params, metrics)
 
 
 if __name__ == '__main__':
