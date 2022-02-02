@@ -22,7 +22,7 @@ def product(a):
 
 
 def get_labels(y):
-    return np.argmax(y, axis=1).ravel()
+    return np.argmax(y, axis=0).ravel()
 
 
 def cross_entropy_loss(y_true, y_pred):
@@ -51,7 +51,7 @@ class DataLoader:
         self.x_train = x_train
         self.y_train = y_train
         # m = len(x_test) // 2
-        m = len(x_test)
+        m = x_test.shape[-1]
         self.x_val = x_test[..., :m]
         self.y_val = y_test[..., :m]
         self.x_test = x_test[..., m:]
@@ -96,10 +96,10 @@ class ToyDataLoader(DataLoader):
         return x, y
 
     def __init__(self, batch_size):
-        x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
-        x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
-        # x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
-        # x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
+        # x_train, y_train = self.read_data('sir-toy-dataset/trainNN.txt')
+        # x_test, y_test = self.read_data('sir-toy-dataset/testNN.txt')
+        x_train, y_train = self.read_data('my-toy-dataset/trainNN.txt')
+        x_test, y_test = self.read_data('my-toy-dataset/testNN.txt')
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -440,6 +440,7 @@ def calc_metrics(model, data):
 
 def train(model, dataloader, epochs=5):
     t_losses, v_losses = [], []
+    t_ax, v_ax = [], []
     for i in range(epochs):
         dataloader.reset()
         while dataloader.next():
@@ -448,19 +449,22 @@ def train(model, dataloader, epochs=5):
             model.backward(y)
         t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
         v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
-        # print(f't_loss: {t_loss:>2.2f}, t_acc: {t_acc:>2.2f}, t_f1: {t_f1:>2.2f}')
-        # print(f'v_loss: {v_loss:>2.2f}, v_acc: {v_acc:>2.2f}, v_f1: {v_f1:>2.2f}')
         t_losses.append(t_loss)
         v_losses.append(v_loss)
+        t_ax.append(t_acc)
+        v_ax.append(v_acc)
     t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
     v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
     print(f't_loss: {t_loss:>2.2f}, t_acc: {t_acc:>2.2f}, t_f1: {t_f1:>2.2f}')
     print(f'v_loss: {v_loss:>2.2f}, v_acc: {v_acc:>2.2f}, v_f1: {v_f1:>2.2f}')
-    t_losses.append(t_loss)
-    v_losses.append(v_loss)
 
     plt.plot(range(len(t_losses)), t_losses, color='red', lw=2)
     plt.plot(range(len(v_losses)), v_losses, color='blue', lw=2)
+    plt.title('loss')
+    plt.show()
+    plt.plot(range(len(t_ax)), t_ax, color='red', lw=2)
+    plt.plot(range(len(v_ax)), v_ax, color='blue', lw=2)
+    plt.title('accuracy')
     plt.show()
     return {}
 
@@ -473,7 +477,7 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 100,
+        'epochs': 200,
         'alpha': 1e-2
     }
 
