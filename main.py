@@ -120,7 +120,7 @@ class CIFAR10Loader(DataLoader):
         x = x.transpose((2, 3, 1, 0))
         labels = dct[b'labels']
         y = one_hot_encode(labels).T
-        return x, y
+        return x[..., :200], y[:, :200]
 
     def draw_img(self, idx):
         print(self.label_names[np.argmax(self.y_train[idx])])
@@ -135,8 +135,8 @@ class CIFAR10Loader(DataLoader):
             x_batch, y_batch = self.read_data(f'cifar-10/data_batch_{i}')
             x_batches.append(x_batch)
             y_batches.append(y_batch)
-        x_train = np.concatenate(x_batches)
-        y_train = np.concatenate(y_batches)
+        x_train = np.concatenate(x_batches, axis=-1)
+        y_train = np.concatenate(y_batches, axis=-1)
         x_test, y_test = self.read_data('cifar-10/test_batch')
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
@@ -151,7 +151,7 @@ class MNISTLoader(DataLoader):
         x = np.reshape(x, (len(x), 1, 28, 28))
         x = x.transpose((2, 3, 1, 0))
         print(x.shape, y.shape)
-        return x, y
+        return x[..., :1000], y[:, 0:1000]
 
     def draw_img(self, idx):
         print(np.argmax(self.y_train[idx]))
@@ -162,6 +162,7 @@ class MNISTLoader(DataLoader):
     def __init__(self, batch_size):
         x_train, y_train = self.read_data('mnist/train-images.idx3-ubyte', 'mnist/train-labels.idx1-ubyte')
         x_test, y_test = self.read_data('mnist/t10k-images.idx3-ubyte', 'mnist/t10k-labels.idx1-ubyte')
+        print(x_train.shape, y_train.shape)
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -176,7 +177,7 @@ class Conv:
         self.x = None
 
     def __repr__(self):
-        k, a, b, c = self.filter.shape
+        a, b, c, k = self.filter.shape
         return f'Convolution {k} x {a}x{b}x{c} s{self.stride} p{self.padding}'
 
     def forward(self, x):
@@ -448,6 +449,7 @@ def train(model, dataloader, epochs=5):
             x, y = dataloader.next_train_batch()
             model.forward(x)
             model.backward(y)
+            print('.', end='')
         if (i + 1) % step_size == 0:
             t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
             v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
@@ -455,7 +457,7 @@ def train(model, dataloader, epochs=5):
             v_losses.append(v_loss)
             t_ax.append(t_acc)
             v_ax.append(v_acc)
-            print('.', end='')
+            print(i)
     print()
     t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
     v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
@@ -481,7 +483,7 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 15,
+        'epochs': 2,
         'alpha': 1e-3
     }
 
@@ -518,16 +520,16 @@ def main():
     #     pool.backward(y)
     # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
-    dataloader = ToyDataLoader(params['batch_size'])
-    # dataloader = CIFAR10Loader(params['batch_size'])
-    dataloader = MNISTLoader(params['batch_size'])
+    # dataloader = ToyDataLoader(params['batch_size'])
+    dataloader = CIFAR10Loader(params['batch_size'])
+    # dataloader = MNISTLoader(params['batch_size'])
     # dataloader.draw_img(0)
 
     model = Model(arch_file, dataloader.shape(), params['alpha'])
     print(model)
 
     metrics = train(model, dataloader, params['epochs'])
-    log(arch_file, params, metrics)
+    # log(arch_file, params, metrics)
 
 
 if __name__ == '__main__':
