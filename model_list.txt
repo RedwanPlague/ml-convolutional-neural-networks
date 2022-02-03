@@ -1,0 +1,1 @@
+MNIST - (FC 10, Softmax) - (DEC = 1e-3, alpha = 1e-3, epochs = 20, batch_size = 500) - 92%
