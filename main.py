@@ -4,12 +4,14 @@ import matplotlib.pyplot as plt
 import sklearn.metrics as sm
 import pickle
 from mlxtend.data import loadlocal_mnist
+import time
 
 np.random.seed(4)
+DEC = 1e-3
 
 
 def safe_log(x):
-    x[x == 0] = 1
+    x[x <= 0] = 1
     return np.log(x)
 
 
@@ -44,14 +46,18 @@ def one_hot_encode(a):
     return b
 
 
+def scale(a):
+    return (2 * a - 1) * DEC
+
+
 class DataLoader:
     def __init__(self, batch_size, x_train, y_train, x_test, y_test):
         self.batch_size = batch_size
         self.cur = 0
         self.x_train = x_train
         self.y_train = y_train
-        # m = len(x_test) // 2
-        m = x_test.shape[-1]
+        m = len(x_test) // 2
+        # m = x_test.shape[-1]
         self.x_val = x_test[..., :m]
         self.y_val = y_test[..., :m]
         self.x_test = x_test[..., m:]
@@ -120,7 +126,8 @@ class CIFAR10Loader(DataLoader):
         x = x.transpose((2, 3, 1, 0))
         labels = dct[b'labels']
         y = one_hot_encode(labels).T
-        return x[..., :200], y[:, :200]
+        # return x[..., :200], y[:, :200]
+        return x, y
 
     def draw_img(self, idx):
         print(self.label_names[np.argmax(self.y_train[idx])])
@@ -145,13 +152,19 @@ class MNISTLoader(DataLoader):
     @staticmethod
     def read_data(img_file, label_file):
         x, y = loadlocal_mnist(images_path=img_file, labels_path=label_file)
+
+        # taking only lables with 0 and 1
+        # take = [i for i in range(len(y)) if y[i] in (0, 1, 2)]
+        # x = x[take]
+        # y = y[take]
+
         x = x.astype(float) / np.max(x)
         print(x.shape, y.shape)
         y = one_hot_encode(y).T
         x = np.reshape(x, (len(x), 1, 28, 28))
         x = x.transpose((2, 3, 1, 0))
         print(x.shape, y.shape)
-        return x[..., :1000], y[:, 0:1000]
+        return x, y
 
     def draw_img(self, idx):
         print(np.argmax(self.y_train[idx]))
@@ -162,7 +175,8 @@ class MNISTLoader(DataLoader):
     def __init__(self, batch_size):
         x_train, y_train = self.read_data('mnist/train-images.idx3-ubyte', 'mnist/train-labels.idx1-ubyte')
         x_test, y_test = self.read_data('mnist/t10k-images.idx3-ubyte', 'mnist/t10k-labels.idx1-ubyte')
-        print(x_train.shape, y_train.shape)
+        # x_train, y_train = x_train[..., :2000], y_train[:, :2000]
+        # x_test, y_test = x_test[..., :1000], y_test[:, :1000]
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -313,8 +327,8 @@ class Flatten:
 
 class Dense:
     def __init__(self, in_dim, out_dim, alpha=1e-3):
-        self.weight = np.random.rand(out_dim, in_dim) * 1e-3
-        self.bias = np.random.rand(out_dim, 1) * 1e-3
+        self.weight = scale(np.random.rand(out_dim, in_dim))
+        self.bias = scale(np.random.rand(out_dim, 1))
         self.alpha = alpha
         self.x = None
 
@@ -337,7 +351,7 @@ class Dense:
 class ReLU:
     def __init__(self):
         self.x = None
-        self.m = 1e-3
+        self.m = DEC
 
     def __repr__(self):
         return 'ReLU'
@@ -449,29 +463,34 @@ def train(model, dataloader, epochs=5):
             x, y = dataloader.next_train_batch()
             model.forward(x)
             model.backward(y)
-            print('.', end='')
+            print('.', end='', flush=True)
         if (i + 1) % step_size == 0:
+            print('#', end='', flush=True)
             t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
             v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
             t_losses.append(t_loss)
             v_losses.append(v_loss)
             t_ax.append(t_acc)
             v_ax.append(v_acc)
-            print(i)
-    print()
-    t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
-    v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
-    print(f't_loss: {t_loss:.3f}, t_acc: {t_acc:.3f}, t_f1: {t_f1:.3f}')
-    print(f'v_loss: {v_loss:.3f}, v_acc: {v_acc:.3f}, v_f1: {v_f1:.3f}')
+            print(i, flush=True)
+            print(f't_loss: {t_loss:.3f}, t_acc: {t_acc:.3f}, t_f1: {t_f1:.3f}', flush=True)
+            print(f'v_loss: {v_loss:.3f}, v_acc: {v_acc:.3f}, v_f1: {v_f1:.3f}', flush=True)
+    print(flush=True)
+    # t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
+    # v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
+    # print(f't_loss: {t_loss:.3f}, t_acc: {t_acc:.3f}, t_f1: {t_f1:.3f}', flush=True)
+    # print(f'v_loss: {v_loss:.3f}, v_acc: {v_acc:.3f}, v_f1: {v_f1:.3f}', flush=True)
 
-    plt.plot(range(len(t_losses)), t_losses, color='red', lw=2)
-    plt.plot(range(len(v_losses)), v_losses, color='blue', lw=2)
+    plt.plot(range(len(t_losses)), t_losses, '-ro', lw=2)
+    plt.plot(range(len(v_losses)), v_losses, '-bo', lw=2)
     plt.title('loss')
-    plt.show()
-    plt.plot(range(len(t_ax)), t_ax, color='red', lw=2)
-    plt.plot(range(len(v_ax)), v_ax, color='blue', lw=2)
+    plt.savefig('loss.png')
+    plt.close()
+    plt.plot(range(len(t_ax)), t_ax, '-ro', lw=2)
+    plt.plot(range(len(v_ax)), v_ax, '-bo', lw=2)
     plt.title('accuracy')
-    plt.show()
+    plt.savefig('accuracy.png')
+    plt.close()
     return {}
 
 
@@ -483,7 +502,7 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 2,
+        'epochs': 20,
         'alpha': 1e-3
     }
 
@@ -493,10 +512,10 @@ def main():
     # model.forward(x)
     # model.backward(y)
 
-    # x = np.random.rand(28, 28, 3, 500)
+    # x = np.random.rand(28, 28, 3, 32)
     # y = None
 
-    # n = 5
+    # n = 100
 
     # conv = Conv(3, (3, 3, 3), 1, 1)
     # b = time.time()
@@ -509,7 +528,7 @@ def main():
     #     conv.backward(y)
     # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
-    # pool = Pool((2, 2), 2)
+    # pool = Pool((1, 1), 1)
     # b = time.time()
     # for _ in range(n):
     #     y = pool.forward(x)
@@ -521,8 +540,8 @@ def main():
     # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
     # dataloader = ToyDataLoader(params['batch_size'])
-    dataloader = CIFAR10Loader(params['batch_size'])
-    # dataloader = MNISTLoader(params['batch_size'])
+    # dataloader = CIFAR10Loader(params['batch_size'])
+    dataloader = MNISTLoader(params['batch_size'])
     # dataloader.draw_img(0)
 
     model = Model(arch_file, dataloader.shape(), params['alpha'])
