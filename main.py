@@ -155,7 +155,7 @@ class MNISTLoader(DataLoader):
 
     def draw_img(self, idx):
         print(np.argmax(self.y_train[idx]))
-        img = np.squeeze(self.x_train[idx])
+        img = np.squeeze(self.x_train[..., idx])
         plt.imshow(img, cmap='gray')
         plt.show()
 
@@ -182,8 +182,7 @@ class Conv:
 
     def forward(self, x):
         self.x_act_shape = x.shape
-        if self.padding > 0:
-            x = np.pad(x, ((self.padding,), (self.padding,), (0, ), (0, )), constant_values=0)
+        x = np.pad(x, ((self.padding,), (self.padding,), (0, ), (0, )), constant_values=0)
         self.x = x
         n, m, c, _ = x.shape
         a, b, _, f_cnt = self.filter.shape
@@ -439,10 +438,26 @@ def calc_metrics(model, data):
     return loss, acc, f1
 
 
+class Plotter:
+    def __init__(self, name):
+        self.name = name
+        self.trains = []
+        self.vals = []
+
+    def add(self, t, v):
+        self.trains.append(t)
+        self.vals.append(v)
+
+    def plot(self):
+        plt.plot(range(len(self.trains)), self.trains, color='red', lw=2)
+        plt.plot(range(len(self.vals)), self.vals, color='blue', lw=2)
+        plt.title(self.name)
+        plt.show()
+
+
 def train(model, dataloader, epochs=5):
     step_size = epochs // 20 if epochs > 20 else 1
-    t_losses, v_losses = [], []
-    t_ax, v_ax = [], []
+    p_loss, p_acc, p_f1 = Plotter('loss'), Plotter('accuracy'), Plotter('f1 score')
     for i in range(epochs):
         dataloader.reset()
         while dataloader.next():
@@ -453,10 +468,9 @@ def train(model, dataloader, epochs=5):
         if (i + 1) % step_size == 0:
             t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
             v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
-            t_losses.append(t_loss)
-            v_losses.append(v_loss)
-            t_ax.append(t_acc)
-            v_ax.append(v_acc)
+            p_loss.add(t_loss, v_loss)
+            p_acc.add(t_acc, v_acc)
+            p_f1.add(t_f1, v_f1)
             print(i)
     print()
     t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
@@ -464,14 +478,10 @@ def train(model, dataloader, epochs=5):
     print(f't_loss: {t_loss:.3f}, t_acc: {t_acc:.3f}, t_f1: {t_f1:.3f}')
     print(f'v_loss: {v_loss:.3f}, v_acc: {v_acc:.3f}, v_f1: {v_f1:.3f}')
 
-    plt.plot(range(len(t_losses)), t_losses, color='red', lw=2)
-    plt.plot(range(len(v_losses)), v_losses, color='blue', lw=2)
-    plt.title('loss')
-    plt.show()
-    plt.plot(range(len(t_ax)), t_ax, color='red', lw=2)
-    plt.plot(range(len(v_ax)), v_ax, color='blue', lw=2)
-    plt.title('accuracy')
-    plt.show()
+    p_loss.plot()
+    p_acc.plot()
+    p_f1.plot()
+
     return {}
 
 
@@ -495,6 +505,16 @@ def main():
 
     # x = np.random.rand(28, 28, 3, 500)
     # y = None
+
+    # np.random.seed(1)
+    # x = np.arange(48).reshape((4, 4, 3, 1))
+    # conv = Conv(8, (2, 2, 3), 1, 2)
+    # y = conv.forward(x)
+    # print(np.squeeze(y))
+
+    # dy = np.arange(392).reshape(y.shape)
+    # dx = conv.backward(dy.astype(float))
+    # print(np.squeeze(dx))
 
     # n = 5
 
