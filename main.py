@@ -8,7 +8,6 @@ import os
 
 np.random.seed(4)
 IMG_DIR = 'plots'
-DEC = 1e-3
 
 
 def safe_log(x):
@@ -37,10 +36,6 @@ def one_hot_encode(a):
     b = np.zeros((len(a), max(a) + 1))
     b[range(len(a)), a] = 1
     return b
-
-
-def scale(a):
-    return (2 * a - 1) * DEC
 
 
 class DataLoader:
@@ -179,8 +174,8 @@ class MNISTLoader(DataLoader):
 
 class Conv:
     def __init__(self, filter_count, filter_shape, stride=1, padding=0, alpha=1e-3):
-        self.filter = np.random.rand(*filter_shape, filter_count)
-        self.bias = np.random.rand(filter_count, 1)
+        self.filter = np.random.randn(*filter_shape, filter_count) * np.sqrt(2.0 / np.prod(filter_shape))
+        self.bias = np.random.randn(filter_count, 1) * np.sqrt(2.0 / np.prod(filter_shape))
         self.stride = stride
         self.padding = padding
         self.alpha = alpha
@@ -325,8 +320,8 @@ class Flatten:
 
 class Dense:
     def __init__(self, in_dim, out_dim, alpha=1e-3):
-        self.weight = scale(np.random.rand(out_dim, in_dim))
-        self.bias = scale(np.random.rand(out_dim, 1))
+        self.weight = np.random.randn(out_dim, in_dim) * np.sqrt(2.0 / in_dim)
+        self.bias = np.random.randn(out_dim, 1) * np.sqrt(2.0 / in_dim)
         self.alpha = alpha
         self.x = None
 
@@ -349,7 +344,7 @@ class Dense:
 class ReLU:
     def __init__(self):
         self.x = None
-        self.m = DEC
+        self.m = 1e-3
 
     def __repr__(self):
         return '[ReLU]'
@@ -396,7 +391,7 @@ class Model:
                     filter_dim = int(layer_data[2])
                     stride = int(layer_data[3])
                     padding = int(layer_data[4])
-                    filter_shape = (filter_dim, filter_dim, in_dim[2])
+                    filter_shape = tuple((filter_dim, filter_dim, in_dim[2]))
                     self.layers.append(Conv(filter_count, filter_shape, stride, padding))
                     in_dim = (
                         (in_dim[0] + 2 * padding - filter_shape[0]) // stride + 1,
@@ -462,12 +457,13 @@ class Plotter:
         self.trains.append(t)
         self.vals.append(v)
 
-    def plot(self):
+    def plot(self, step_size):
         print(f'train {self.name}: {self.trains[-1]:.3f}, val {self.name}: {self.vals[-1]:.3f}')
         cnt = len(self.trains)
+        epochs = np.arange(cnt) * step_size
         extra = 'o' if cnt == 1 else ''
-        plt.plot(range(cnt), self.trains, '-r' + extra, lw=2, label='train')
-        plt.plot(range(cnt), self.vals, '-b' + extra, lw=2, label='val')
+        plt.plot(epochs, self.trains, '-r' + extra, lw=2, label='train')
+        plt.plot(epochs, self.vals, '-b' + extra, lw=2, label='val')
         plt.title(self.name)
         plt.legend()
         plt.savefig(os.path.join(IMG_DIR, f'{self.name}.png'))
@@ -487,7 +483,7 @@ def train(model, dataloader, epochs=5):
             x, y = dataloader.next_train_batch()
             y_pred = model.forward(x)
             model.backward(y)
-            print('.', end='', flush=True)
+            # print('.', end='', flush=True)
 
         if i in marks:
             print('#', end='', flush=True)
@@ -504,9 +500,9 @@ def train(model, dataloader, epochs=5):
             print(i)
     print()
 
-    p_loss.plot()
-    p_acc.plot()
-    p_f1.plot()
+    p_loss.plot(step_size)
+    p_acc.plot(step_size)
+    p_f1.plot(step_size)
 
     return {}
 
