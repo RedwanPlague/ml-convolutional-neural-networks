@@ -5,7 +5,6 @@ import sklearn.metrics as sm
 import pickle
 from mlxtend.data import loadlocal_mnist
 import os
-import time
 
 np.random.seed(4)
 IMG_DIR = 'plots'
@@ -518,10 +517,6 @@ def train(model, dataloader, epochs=5):
     return {}
 
 
-def log(arch_file, params, metrics):
-    pass
-
-
 def main():
     if not os.path.isdir(IMG_DIR):
         os.makedirs(IMG_DIR)
@@ -579,8 +574,7 @@ def main():
     assert model_out_dim == act_out_dim,\
         f'model gives {model_out_dim} labels, but data has {act_out_dim}'
 
-    metrics = train(model, dataloader, params['epochs'])
-    # log(arch_file, params, metrics)
+    train(model, dataloader, params['epochs'])
 
     # x, y = dataloader.train_data()
     # x, y = x[..., :10], y[:, :10]
