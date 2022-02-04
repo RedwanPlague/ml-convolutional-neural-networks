@@ -4,9 +4,11 @@ import matplotlib.pyplot as plt
 import sklearn.metrics as sm
 import pickle
 from mlxtend.data import loadlocal_mnist
+import os
 import time
 
 np.random.seed(4)
+IMG_DIR = 'plots'
 DEC = 1e-3
 
 
@@ -130,9 +132,10 @@ class CIFAR10Loader(DataLoader):
         return x, y
 
     def draw_img(self, idx):
-        print(self.label_names[np.argmax(self.y_train[idx])])
-        img = self.x_train[idx].transpose((1, 2, 0))
+        label = self.label_names[np.argmax(self.y_train[:, idx])]
+        img = self.x_train[..., idx]
         plt.imshow(img)
+        plt.title(f'img-{idx} is {label}')
         plt.show()
 
     def __init__(self, batch_size):
@@ -154,9 +157,9 @@ class MNISTLoader(DataLoader):
         x, y = loadlocal_mnist(images_path=img_file, labels_path=label_file)
 
         # taking only lables with 0 and 1
-        # take = [i for i in range(len(y)) if y[i] in (0, 1, 2)]
-        # x = x[take]
-        # y = y[take]
+        take = [i for i in range(len(y)) if y[i] in (0, 1, 2)]
+        x = x[take]
+        y = y[take]
 
         x = x.astype(float) / np.max(x)
         print(x.shape, y.shape)
@@ -167,9 +170,10 @@ class MNISTLoader(DataLoader):
         return x, y
 
     def draw_img(self, idx):
-        print(np.argmax(self.y_train[idx]))
+        label = np.argmax(self.y_train[:, idx])
         img = np.squeeze(self.x_train[..., idx])
         plt.imshow(img, cmap='gray')
+        plt.title(f'img-{idx} is {label}')
         plt.show()
 
     def __init__(self, batch_size):
@@ -466,7 +470,8 @@ class Plotter:
         plt.plot(range(len(self.trains)), self.trains, color='red', lw=2)
         plt.plot(range(len(self.vals)), self.vals, color='blue', lw=2)
         plt.title(self.name)
-        plt.show()
+        plt.savefig(os.path.join(IMG_DIR, f'{self.name}.png'))
+        plt.close()
 
 
 def train(model, dataloader, epochs=5):
@@ -505,6 +510,9 @@ def log(arch_file, params, metrics):
 
 
 def main():
+    if not os.path.isdir(IMG_DIR):
+        os.makedirs(IMG_DIR)
+
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
@@ -518,54 +526,53 @@ def main():
     # model.forward(x)
     # model.backward(y)
 
-    # x = np.random.rand(28, 28, 3, 32)
-    # y = None
+    x = np.random.rand(28, 28, 3, 32)
+    y = None
 
-    # np.random.seed(1)
-    # x = np.arange(48).reshape((4, 4, 3, 1))
-    # conv = Conv(8, (2, 2, 3), 1, 2)
-    # y = conv.forward(x)
-    # print(np.squeeze(y))
+    n = 5
 
-    # dy = np.arange(392).reshape(y.shape)
-    # dx = conv.backward(dy.astype(float))
-    # print(np.squeeze(dx))
+    conv = Conv(3, (3, 3, 3), 1, 1)
+    b = time.time()
+    for _ in range(n):
+        y = conv.forward(x)
+    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
-    # n = 5
+    b = time.time()
+    for _ in range(n):
+        conv.backward(y)
+    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
-    # conv = Conv(3, (3, 3, 3), 1, 1)
-    # b = time.time()
-    # for _ in range(n):
-    #     y = conv.forward(x)
-    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    pool = Pool((1, 1), 1)
+    b = time.time()
+    for _ in range(n):
+        y = pool.forward(x)
+    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
-    # b = time.time()
-    # for _ in range(n):
-    #     conv.backward(y)
-    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
-
-    # pool = Pool((1, 1), 1)
-    # b = time.time()
-    # for _ in range(n):
-    #     y = pool.forward(x)
-    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
-
-    # b = time.time()
-    # for _ in range(n):
-    #     pool.backward(y)
-    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    b = time.time()
+    for _ in range(n):
+        pool.backward(y)
+    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
 
     # dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
-    dataloader = MNISTLoader(params['batch_size'])
+    # dataloader = MNISTLoader(params['batch_size'])
     # dataloader.draw_img(0)
 
-    model = Model(arch_file, dataloader.shape(), params['alpha'])
-    print(model)
+    # model = Model(arch_file, dataloader.shape(), params['alpha'])
+    # print(model)
 
-    metrics = train(model, dataloader, params['epochs'])
+    # metrics = train(model, dataloader, params['epochs'])
     # log(arch_file, params, metrics)
 
+    # x, y = dataloader.train_data()
+    # x, y = x[..., :10], y[:, :10]
+    # y_pred = model.forward(x)
+    # act = get_labels(y)
+    # pred = get_labels(y_pred)
+    # print(act)
+    # print(pred)
+    # for i in range(5):
+    #     dataloader.draw_img(i)
 
 if __name__ == '__main__':
     main()
