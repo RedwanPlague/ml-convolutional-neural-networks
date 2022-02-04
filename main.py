@@ -154,9 +154,9 @@ class MNISTLoader(DataLoader):
         x, y = loadlocal_mnist(images_path=img_file, labels_path=label_file)
 
         # taking only lables with 0 and 1
-        # take = [i for i in range(len(y)) if y[i] in (0, 1, 2)]
-        # x = x[take]
-        # y = y[take]
+        take = [i for i in range(len(y)) if y[i] in (0, 1, 2)]
+        x = x[take]
+        y = y[take]
 
         x = x.astype(float) / np.max(x)
         print(x.shape, y.shape)
@@ -167,10 +167,11 @@ class MNISTLoader(DataLoader):
         return x, y
 
     def draw_img(self, idx):
-        print(np.argmax(self.y_train[idx]))
-        img = np.squeeze(self.x_train[idx])
+        label = np.argmax(self.y_train[:, idx]) 
+        img = np.squeeze(self.x_train[..., idx])
         plt.imshow(img, cmap='gray')
-        plt.show()
+        plt.savefig(f'mnist{idx}={label}')
+        plt.close()
 
     def __init__(self, batch_size):
         x_train, y_train = self.read_data('mnist/train-images.idx3-ubyte', 'mnist/train-labels.idx1-ubyte')
@@ -457,6 +458,7 @@ def train(model, dataloader, epochs=5):
     step_size = epochs // 20 if epochs > 20 else 1
     t_losses, v_losses = [], []
     t_ax, v_ax = [], []
+    t_f1s, v_f1s = [], []
     for i in range(epochs):
         dataloader.reset()
         while dataloader.next():
@@ -472,6 +474,8 @@ def train(model, dataloader, epochs=5):
             v_losses.append(v_loss)
             t_ax.append(t_acc)
             v_ax.append(v_acc)
+            t_f1s.append(t_f1)
+            v_f1s.append(v_f1)
             print(i, flush=True)
             print(f't_loss: {t_loss:.3f}, t_acc: {t_acc:.3f}, t_f1: {t_f1:.3f}', flush=True)
             print(f'v_loss: {v_loss:.3f}, v_acc: {v_acc:.3f}, v_f1: {v_f1:.3f}', flush=True)
@@ -491,6 +495,11 @@ def train(model, dataloader, epochs=5):
     plt.title('accuracy')
     plt.savefig('accuracy.png')
     plt.close()
+    plt.plot(range(len(t_f1s)), t_f1s, '-ro', lw=2)
+    plt.plot(range(len(v_f1s)), v_f1s, '-bo', lw=2)
+    plt.title('f1 score')
+    plt.savefig('f1.png')
+    plt.close()
     return {}
 
 
@@ -502,7 +511,7 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 20,
+        'epochs': 1,
         'alpha': 1e-3
     }
 
@@ -549,6 +558,16 @@ def main():
 
     metrics = train(model, dataloader, params['epochs'])
     # log(arch_file, params, metrics)
+
+    x, y = dataloader.train_data()
+    x, y = x[..., :10], y[:, :10]
+    y_pred = model.forward(x)
+    act = get_labels(y)
+    pred = get_labels(y_pred)
+    print(act)
+    print(pred)
+    # for i in range(5):
+    #     dataloader.draw_img(i)
 
 
 if __name__ == '__main__':

@@ -3,3 +3,4 @@ venv
 sir-toy-dataset
 mnist
 cifar-10
+*.png
