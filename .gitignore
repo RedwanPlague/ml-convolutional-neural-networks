@@ -1,5 +1,5 @@
 .idea
-venv
 sir-toy-dataset
 mnist
 cifar-10
+plots

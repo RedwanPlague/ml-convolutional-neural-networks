@@ -123,12 +123,17 @@ class CIFAR10Loader(DataLoader):
         with open(data_file, 'rb') as f:
             dct = pickle.load(f, encoding='bytes')
         x = dct[b'data']
+        labels = dct[b'labels']
+
+        # taking only a subset of the labels
+        take = [i for i in range(len(labels)) if labels[i] in (0, 1)]
+        x = x[take]
+        labels = labels[take]
+
         x = x.astype(float) / np.max(x)
         x = np.reshape(x, (len(x), 3, 32, 32))
         x = x.transpose((2, 3, 1, 0))
-        labels = dct[b'labels']
         y = one_hot_encode(labels).T
-        # return x[..., :200], y[:, :200]
         return x, y
 
     def draw_img(self, idx):
@@ -154,18 +159,17 @@ class CIFAR10Loader(DataLoader):
 class MNISTLoader(DataLoader):
     @staticmethod
     def read_data(img_file, label_file):
-        x, y = loadlocal_mnist(images_path=img_file, labels_path=label_file)
+        x, labels = loadlocal_mnist(images_path=img_file, labels_path=label_file)
 
-        # taking only lables with 0 and 1
-        take = [i for i in range(len(y)) if y[i] in (0, 1, 2)]
+        # taking only a subset of the labels
+        take = [i for i in range(len(labels)) if labels[i] in (0, 1)]
         x = x[take]
-        y = y[take]
+        labels = labels[take]
 
         x = x.astype(float) / np.max(x)
-        print(x.shape, y.shape)
-        y = one_hot_encode(y).T
         x = np.reshape(x, (len(x), 1, 28, 28))
         x = x.transpose((2, 3, 1, 0))
+        y = one_hot_encode(labels).T
         print(x.shape, y.shape)
         return x, y
 
@@ -179,8 +183,6 @@ class MNISTLoader(DataLoader):
     def __init__(self, batch_size):
         x_train, y_train = self.read_data('mnist/train-images.idx3-ubyte', 'mnist/train-labels.idx1-ubyte')
         x_test, y_test = self.read_data('mnist/t10k-images.idx3-ubyte', 'mnist/t10k-labels.idx1-ubyte')
-        # x_train, y_train = x_train[..., :2000], y_train[:, :2000]
-        # x_test, y_test = x_test[..., :1000], y_test[:, :1000]
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -196,11 +198,11 @@ class Conv:
 
     def __repr__(self):
         a, b, c, k = self.filter.shape
-        return f'Convolution {k} x {a}x{b}x{c} s{self.stride} p{self.padding}'
+        return f'[Convolution {k} x {a}x{b}x{c} s{self.stride} p{self.padding}]'
 
     def forward(self, x):
         self.x_act_shape = x.shape
-        x = np.pad(x, ((self.padding,), (self.padding,), (0, ), (0, )), constant_values=0)
+        x = np.pad(x, ((self.padding,), (self.padding,), (0,), (0,)), constant_values=0)
         self.x = x
         n, m, c, _ = x.shape
         a, b, _, f_cnt = self.filter.shape
@@ -213,14 +215,32 @@ class Conv:
         for yi in range(p):
             j = 0
             for yj in range(q):
-                y[yi, yj, :, :] = np.sum(x[i:i+a, j:j+b, :, :, :] * f, axis=(0, 1, 2)) + self.bias
+                y[yi, yj, :, :] = np.sum(x[i:i + a, j:j + b, :, :, :] * f, axis=(0, 1, 2)) + self.bias
                 j += self.stride
             i += self.stride
         return y
 
+    def calc_pos(self, i, n, a):
+        s = self.stride
+        w = a - 1
+        i += self.padding
+        d = i % s
+        i -= d
+        w -= d
+        i //= s
+        while i + a > n and w >= 0 and i >= 0:
+            i -= 1
+            w -= s
+        if i < 0 or w < 0:
+            return [-1] * 4
+        length = min(w // s, i)
+        tw = w - length * s
+        ti = i - length
+        return tw, w, ti, i
+
     def backward(self, dy):
-        db = np.expand_dims(np.average(dy, axis=(0, 1, 3)), axis=-1)
-        self.bias -= self.alpha * db
+        db = np.average(np.sum(dy, axis=(0, 1)), axis=-1)
+        self.bias -= self.alpha * np.expand_dims(db, axis=-1)
         n, m, c, _ = self.x.shape
         a, b, f_cnt, _ = self.filter.shape
         p, q, _, _ = dy.shape
@@ -228,41 +248,25 @@ class Conv:
         x = np.expand_dims(self.x, axis=3)
         dy = np.expand_dims(dy, axis=2)
         s = self.stride
-        ps, qs = p*s, q*s
+        ps, qs = p * s, q * s
         for fi in range(a):
             for fj in range(b):
-                df[fi, fj, :, :] = np.average(x[fi:fi+ps:s, fj:fj+qs:s, :, :, :]
-                                              * dy[:p, :q, :, :, :], axis=(0, 1, 4))
+                df[fi, fj, :, :] = np.average(np.sum(
+                    x[fi:fi + ps:s, fj:fj + qs:s, :, :, :] * dy,
+                    axis=(0, 1)), axis=-1)
         self.filter -= self.alpha * df
 
         an, am, _, _ = self.x_act_shape
         dx = np.zeros(self.x_act_shape)
-        f = np.expand_dims(self.filter, axis=4)
+        f = np.expand_dims(self.filter, axis=-1)
+        f = np.flip(f, axis=(0, 1))
 
         for i in range(an):
             for j in range(am):
-                wk = np.zeros(2, dtype=int)
-                bk = np.array([i, j], dtype=int)
-                bk += self.padding
-                dk = bk % s
-                wk += dk
-                bk -= dk
-                bi, bj = bk // s
-                wi, wj = wk
-                while bi + a > n and wi < a and bi >= 0:
-                    bi -= 1
-                    wi += s
-                while bj + b > m and wj < b and bj >= 0:
-                    bj -= 1
-                    wj += s
-                if bi < 0 or bj < 0 or wi >= a or wj >= b:
-                    continue
-                lik = min(len(range(wi, a, s)) - 1, bi)
-                ljk = min(len(range(wj, b, s)) - 1, bj)
-                ewi, ewj = wi + lik * s, wj + ljk * s
-                tbi, tbj = bi - lik, bj - ljk
-                f_slc = np.flip(f[wi:ewi+1:s, wj:ewj+1:s, :, :, :], axis=(0, 1))
-                dy_slc = dy[tbi:bi+1, tbj:bj+1, :, :, :]
+                twi, wi, tyi, yi = self.calc_pos(i, n, a)
+                twj, wj, tyj, yj = self.calc_pos(j, m, b)
+                f_slc = f[twi:(wi + 1):s, twj:(wj + 1):s, :, :, :]
+                dy_slc = dy[tyi:(yi + 1), tyj:(yj + 1), :, :, :]
                 dx[i, j, :, :] += np.sum(f_slc * dy_slc, axis=(0, 1, 3))
         return dx
 
@@ -276,7 +280,7 @@ class Pool:
 
     def __repr__(self):
         a, b = self.shape
-        return f'Max Pool {a}x{b} s{self.stride}'
+        return f'[Max Pool {a}x{b} s{self.stride}]'
 
     def forward(self, x):
         self.x_shape = x.shape
@@ -293,9 +297,9 @@ class Pool:
             i = yi * self.stride
             for yj in range(q):
                 j = yj * self.stride
-                slc = x[i:i+a, j:j+b, :, :]
+                slc = x[i:i + a, j:j + b, :, :]
                 y[yi, yj, :, :] = np.max(slc, axis=(0, 1))
-                self.idx[yi, yj, :] = np.argmax(slc.reshape(a*b, d_lim), axis=0)
+                self.idx[yi, yj, :] = np.argmax(slc.reshape(a * b, d_lim), axis=0)
         return y
 
     def backward(self, dy):
@@ -318,7 +322,7 @@ class Flatten:
         self.x_shape = None
 
     def __repr__(self):
-        return 'Flatten'
+        return '[Flatten]'
 
     def forward(self, x):
         self.x_shape = x.shape
@@ -337,7 +341,7 @@ class Dense:
 
     def __repr__(self):
         out_dim, in_dim = self.weight.shape
-        return f'Dense {in_dim} -> {out_dim}'
+        return f'[Dense {in_dim} -> {out_dim}]'
 
     def forward(self, x):
         self.x = x
@@ -357,7 +361,7 @@ class ReLU:
         self.m = DEC
 
     def __repr__(self):
-        return 'ReLU'
+        return '[ReLU]'
 
     def forward(self, x):
         self.x = x
@@ -372,10 +376,10 @@ class Softmax:
         self.y = None
 
     def __repr__(self):
-        return 'Softmax'
+        return '[Softmax]'
 
     def forward(self, x):
-        x -= np.max(x)
+        x -= np.max(x, axis=0)
         y = np.exp(x)
         s = np.sum(y, axis=0, keepdims=True)
         s[s == 0] = 1
@@ -390,6 +394,7 @@ class Softmax:
 
 class Model:
     def __init__(self, arch_file, in_dim, alpha=1e-3):
+        print(f'{in_dim} <- Input')
         self.layers = []
         with open(arch_file) as f:
             for line in f:
@@ -421,6 +426,7 @@ class Model:
                     if len(in_dim) > 1:
                         self.layers.append(Flatten())
                         in_dim = (product(in_dim),)
+                        print(f'{in_dim} <- {self.layers[-1]}')
                     out_dim = (int(layer_data[1]),)
                     self.layers.append(Dense(in_dim[0], out_dim[0], alpha))
                     in_dim = out_dim
@@ -431,9 +437,10 @@ class Model:
                 elif layer_name == 'Flatten':
                     self.layers.append(Flatten())
                     in_dim = (product(in_dim),)
+                print(f'{in_dim} <- {self.layers[-1]}')
 
     def __repr__(self):
-        return '\n'.join(str(layer) for layer in self.layers)
+        return '-\n' + '\n'.join(str(layer) for layer in self.layers) + '\n-'
 
     def forward(self, x):
         out = x
@@ -447,12 +454,10 @@ class Model:
             grad = layer.backward(grad)
 
 
-def calc_metrics(model, data):
-    x, y = data
-    y_pred = model.forward(x)
-    loss = cross_entropy_loss(y, y_pred)
-    acc = accuracy(y, y_pred)
-    f1 = f1_score(y, y_pred)
+def calc_metrics(y_act, y_pred):
+    loss = cross_entropy_loss(y_act, y_pred)
+    acc = accuracy(y_act, y_pred)
+    f1 = f1_score(y_act, y_pred)
     return loss, acc, f1
 
 
@@ -467,8 +472,10 @@ class Plotter:
         self.vals.append(v)
 
     def plot(self):
-        plt.plot(range(len(self.trains)), self.trains, color='red', lw=2)
-        plt.plot(range(len(self.vals)), self.vals, color='blue', lw=2)
+        cnt = len(self.trains)
+        extra = 'o' if cnt == 1 else ''
+        plt.plot(range(cnt), self.trains, '-r' + extra, lw=2)
+        plt.plot(range(cnt), self.vals, '-b' + extra, lw=2)
         plt.title(self.name)
         plt.savefig(os.path.join(IMG_DIR, f'{self.name}.png'))
         plt.close()
@@ -476,27 +483,33 @@ class Plotter:
 
 def train(model, dataloader, epochs=5):
     step_size = epochs // 20 if epochs > 20 else 1
+    marks = range(epochs - 1, -1, -step_size)
     p_loss, p_acc, p_f1 = Plotter('loss'), Plotter('accuracy'), Plotter('f1 score')
+
     for i in range(epochs):
+        y, y_pred = None, None
+
         dataloader.reset()
         while dataloader.next():
             x, y = dataloader.next_train_batch()
-            model.forward(x)
+            y_pred = model.forward(x)
             model.backward(y)
             print('.', end='', flush=True)
-        if (i + 1) % step_size == 0:
+
+        if i in marks:
             print('#', end='', flush=True)
-            t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
-            v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
+            t_loss, t_acc, t_f1 = calc_metrics(y, y_pred)
+
+            x_val, y_val = dataloader.val_data()
+            y_pred = model.forward(x_val)
+            v_loss, v_acc, v_f1 = calc_metrics(y_val, y_pred)
+
             p_loss.add(t_loss, v_loss)
             p_acc.add(t_acc, v_acc)
             p_f1.add(t_f1, v_f1)
+
             print(i)
     print()
-    t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
-    v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
-    print(f't_loss: {t_loss:.3f}, t_acc: {t_acc:.3f}, t_f1: {t_f1:.3f}')
-    print(f'v_loss: {v_loss:.3f}, v_acc: {v_acc:.3f}, v_f1: {v_f1:.3f}')
 
     p_loss.plot()
     p_acc.plot()
@@ -516,8 +529,8 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 20,
-        'alpha': 1e-3
+        'epochs': 5,
+        'alpha': 1e-2
     }
 
     # x = np.random.rand(32, 32, 3, 50)
@@ -526,42 +539,47 @@ def main():
     # model.forward(x)
     # model.backward(y)
 
-    x = np.random.rand(28, 28, 3, 32)
-    y = None
+    # x = np.random.rand(28, 28, 3, 32)
+    # y = None
 
-    n = 5
+    # n = 10
 
-    conv = Conv(3, (3, 3, 3), 1, 1)
-    b = time.time()
-    for _ in range(n):
-        y = conv.forward(x)
-    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    # conv = Conv(3, (3, 3, 3), 1, 1)
+    # b = time.time()
+    # for _ in range(n):
+    #     y = conv.forward(x)
+    # print(f'time = {(time.time() - b) / n * 1e3:.3f}ms')
 
-    b = time.time()
-    for _ in range(n):
-        conv.backward(y)
-    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    # b = time.time()
+    # for _ in range(n):
+    #     conv.backward(y)
+    # print(f'time = {(time.time() - b) / n * 1e3:.3f}ms')
 
-    pool = Pool((1, 1), 1)
-    b = time.time()
-    for _ in range(n):
-        y = pool.forward(x)
-    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    # pool = Pool((1, 1), 1)
+    # b = time.time()
+    # for _ in range(n):
+    #     y = pool.forward(x)
+    # print(f'time = {(time.time() - b) / n * 1e3:.3f}ms')
 
-    b = time.time()
-    for _ in range(n):
-        pool.backward(y)
-    print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    # b = time.time()
+    # for _ in range(n):
+    #     pool.backward(y)
+    # print(f'time = {(time.time() - b) / n * 1e3:.3f}ms')
 
     # dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
-    # dataloader = MNISTLoader(params['batch_size'])
+    dataloader = MNISTLoader(params['batch_size'])
     # dataloader.draw_img(0)
 
-    # model = Model(arch_file, dataloader.shape(), params['alpha'])
-    # print(model)
+    model = Model(arch_file, dataloader.shape(), params['alpha'])
+    print(model)
 
-    # metrics = train(model, dataloader, params['epochs'])
+    model_out_dim = model.layers[-2].bias.shape[0]
+    act_out_dim = dataloader.train_data()[1].shape[0]
+    assert model_out_dim == act_out_dim,\
+        f'model gives {model_out_dim} labels, but data has {act_out_dim}'
+
+    metrics = train(model, dataloader, params['epochs'])
     # log(arch_file, params, metrics)
 
     # x, y = dataloader.train_data()
@@ -573,6 +591,7 @@ def main():
     # print(pred)
     # for i in range(5):
     #     dataloader.draw_img(i)
+
 
 if __name__ == '__main__':
     main()
