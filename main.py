@@ -16,14 +16,6 @@ def safe_log(x):
     return np.log(x)
 
 
-# returns product of all elements
-def product(a):
-    prod = 1
-    for x in a:
-        prod *= x
-    return prod
-
-
 def get_labels(y):
     return np.argmax(y, axis=0).ravel()
 
@@ -424,7 +416,7 @@ class Model:
                 elif layer_name == 'FC':
                     if len(in_dim) > 1:
                         self.layers.append(Flatten())
-                        in_dim = (product(in_dim),)
+                        in_dim = (np.prod(in_dim),)
                         print(f'{in_dim} <- {self.layers[-1]}')
                     out_dim = (int(layer_data[1]),)
                     self.layers.append(Dense(in_dim[0], out_dim[0], alpha))
@@ -435,7 +427,7 @@ class Model:
                     self.layers.append(Softmax())
                 elif layer_name == 'Flatten':
                     self.layers.append(Flatten())
-                    in_dim = (product(in_dim),)
+                    in_dim = (np.prod(in_dim),)
                 print(f'{in_dim} <- {self.layers[-1]}')
 
     def __repr__(self):
