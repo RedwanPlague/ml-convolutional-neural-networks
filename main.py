@@ -161,9 +161,9 @@ class MNISTLoader(DataLoader):
         x, labels = loadlocal_mnist(images_path=img_file, labels_path=label_file)
 
         # taking only a subset of the labels
-        take = [i for i in range(len(labels)) if labels[i] in (0, 1)]
-        x = x[take]
-        labels = labels[take]
+        # take = [i for i in range(len(labels)) if labels[i] in (0, 1)]
+        # x = x[take]
+        # labels = labels[take]
 
         x = x.astype(float) / np.max(x)
         x = np.reshape(x, (len(x), 1, 28, 28))
@@ -471,21 +471,23 @@ class Plotter:
         self.vals.append(v)
 
     def plot(self):
+        print(f'train {self.name}: {self.trains[-1]:.3f}, val {self.name}: {self.vals[-1]:.3f}')
         cnt = len(self.trains)
         extra = 'o' if cnt == 1 else ''
-        plt.plot(range(cnt), self.trains, '-r' + extra, lw=2)
-        plt.plot(range(cnt), self.vals, '-b' + extra, lw=2)
+        plt.plot(range(cnt), self.trains, '-r' + extra, lw=2, label='train')
+        plt.plot(range(cnt), self.vals, '-b' + extra, lw=2, label='val')
         plt.title(self.name)
+        plt.legend()
         plt.savefig(os.path.join(IMG_DIR, f'{self.name}.png'))
         plt.close()
 
 
 def train(model, dataloader, epochs=5):
     step_size = epochs // 20 if epochs > 20 else 1
-    marks = range(epochs - 1, -1, -step_size)
+    marks = range(epochs, -1, -step_size)
     p_loss, p_acc, p_f1 = Plotter('loss'), Plotter('accuracy'), Plotter('f1 score')
 
-    for i in range(epochs):
+    for i in range(1, epochs + 1):
         y, y_pred = None, None
 
         dataloader.reset()
@@ -524,7 +526,7 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 5,
+        'epochs': 10,
         'alpha': 1e-2
     }
 
@@ -543,23 +545,23 @@ def main():
     # b = time.time()
     # for _ in range(n):
     #     y = conv.forward(x)
-    # print(f'time = {(time.time() - b) / n * 1e3:.3f}ms')
+    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
 
     # b = time.time()
     # for _ in range(n):
     #     conv.backward(y)
-    # print(f'time = {(time.time() - b) / n * 1e3:.3f}ms')
+    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
 
     # pool = Pool((1, 1), 1)
     # b = time.time()
     # for _ in range(n):
     #     y = pool.forward(x)
-    # print(f'time = {(time.time() - b) / n * 1e3:.3f}ms')
+    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
 
     # b = time.time()
     # for _ in range(n):
     #     pool.backward(y)
-    # print(f'time = {(time.time() - b) / n * 1e3:.3f}ms')
+    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
 
     # dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
@@ -571,7 +573,7 @@ def main():
 
     model_out_dim = model.layers[-2].bias.shape[0]
     act_out_dim = dataloader.train_data()[1].shape[0]
-    assert model_out_dim == act_out_dim,\
+    assert model_out_dim == act_out_dim, \
         f'model gives {model_out_dim} labels, but data has {act_out_dim}'
 
     train(model, dataloader, params['epochs'])

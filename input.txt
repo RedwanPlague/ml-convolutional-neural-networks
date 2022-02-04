@@ -1,5 +1,4 @@
-Conv 6 5 1 2
+FC 20
 ReLU
-Pool 2 2
-FC 2
+FC 10
 Softmax
