@@ -6,7 +6,6 @@ from sklearn.preprocessing import OneHotEncoder
 import pickle
 from mlxtend.data import loadlocal_mnist
 import os
-import time
 
 np.random.seed(4)
 IMG_DIR = 'plots'
@@ -48,12 +47,15 @@ class DataLoader:
         self.cur = 0
         self.x_train = x_train
         self.y_train = y_train
-        m = len(x_test) // 2
-        # m = x_test.shape[-1]
+        m = x_test.shape[-1] // 2
         self.x_val = x_test[..., :m]
         self.y_val = y_test[..., :m]
         self.x_test = x_test[..., m:]
         self.y_test = y_test[..., m:]
+
+        print(f'x_train: {self.x_train.shape}, y_train: {self.y_train.shape}')
+        print(f'x_val: {self.x_val.shape}, y_val: {self.y_val.shape}')
+        print(f'x_test: {self.x_test.shape}, y_test: {self.y_test.shape}')
 
     def shape(self):
         return self.x_train.shape[:-1]
@@ -121,14 +123,12 @@ class CIFAR10Loader(DataLoader):
         x = x[take]
         labels = labels[take]
 
-        x, labels = x[:200], labels[:200]
-
         x = x.astype(float) / np.max(x)
         x = np.reshape(x, (len(x), 3, 32, 32))
         x = x.transpose((2, 3, 1, 0))
         y = one_hot_encode(labels).T
 
-        print(x.shape, y.shape)
+        print(f'CIFAR-10: {x.shape}, {y.shape}')
         return x, y
 
     def draw_img(self, idx):
@@ -148,6 +148,7 @@ class CIFAR10Loader(DataLoader):
         x_train = np.concatenate(x_batches, axis=-1)
         y_train = np.concatenate(y_batches, axis=-1)
         x_test, y_test = self.read_data('cifar-10/test_batch')
+        # x_train, y_train = x_train[..., :500], y_train[:, :500]
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -158,16 +159,16 @@ class MNISTLoader(DataLoader):
         x, labels = shuffle_together(x, labels)
 
         # taking only a subset of the labels
-        # take = [i for i in range(len(labels)) if labels[i] in (0, 1, 2)]
-        # x = x[take]
-        # labels = labels[take]
+        take = [i for i in range(len(labels)) if labels[i] in (0, 1)]
+        x = x[take]
+        labels = labels[take]
 
         x = x.astype(float) / np.max(x)
         x = np.reshape(x, (len(x), 1, 28, 28))
         x = x.transpose((2, 3, 1, 0))
         y = one_hot_encode(labels).T
 
-        print(x.shape, y.shape)
+        print(f'MNIST: {x.shape}, {y.shape}')
         return x, y
 
     def draw_img(self, idx):
@@ -180,13 +181,15 @@ class MNISTLoader(DataLoader):
     def __init__(self, batch_size):
         x_train, y_train = self.read_data('mnist/train-images.idx3-ubyte', 'mnist/train-labels.idx1-ubyte')
         x_test, y_test = self.read_data('mnist/t10k-images.idx3-ubyte', 'mnist/t10k-labels.idx1-ubyte')
+        x_train, y_train = x_train[..., :500], y_train[:, :500]
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
 class Conv:
     def __init__(self, filter_count, filter_shape, stride=1, padding=0, alpha=1e-3):
-        self.filter = np.random.randn(*filter_shape, filter_count) * np.sqrt(2.0 / np.prod(filter_shape))
-        self.bias = np.random.randn(filter_count, 1) * np.sqrt(2.0 / np.prod(filter_shape))
+        scale = np.sqrt(2.0 / np.prod(filter_shape))
+        self.filter = np.random.randn(*filter_shape, filter_count) * scale
+        self.bias = np.random.randn(filter_count, 1) * scale
         self.stride = stride
         self.padding = padding
         self.alpha = alpha
@@ -237,7 +240,6 @@ class Conv:
 
     def backward(self, dy):
         db = np.average(np.sum(dy, axis=(0, 1)), axis=-1)
-        self.bias -= self.alpha * np.expand_dims(db, axis=-1)
         n, m, _, _ = self.x.shape
         a, b, _, _ = self.filter.shape
         p, q, _, _ = dy.shape
@@ -251,13 +253,11 @@ class Conv:
                 df[fi, fj, :, :] = np.average(np.sum(
                     x[fi:(fi + ps):s, fj:(fj + qs):s, :, :, :] * dy,
                     axis=(0, 1)), axis=-1)
-        self.filter -= self.alpha * df
 
         an, am, _, _ = self.x_act_shape
         dx = np.zeros(self.x_act_shape)
         f = np.expand_dims(self.filter, axis=-1)
         f = np.flip(f, axis=(0, 1))
-
         for i in range(an):
             for j in range(am):
                 twi, wi, tyi, yi = self.calc_pos(i, n, a)
@@ -265,6 +265,9 @@ class Conv:
                 f_slc = f[twi:(wi + 1):s, twj:(wj + 1):s, :, :, :]
                 dy_slc = dy[tyi:(yi + 1), tyj:(yj + 1), :, :, :]
                 dx[i, j, :, :] += np.sum(f_slc * dy_slc, axis=(0, 1, 3))
+
+        self.filter -= self.alpha * df
+        self.bias -= self.alpha * np.expand_dims(db, axis=-1)
         return dx
 
 
@@ -303,6 +306,7 @@ class Pool:
         p, q, _, _ = dy.shape
         n, m, c, samples = self.x_shape
         l_dim = c * samples
+        use_idx = np.arange(l_dim)
         dy = np.reshape(dy, (p, q, -1))
         dx = np.zeros((n, m, l_dim))
         for yi in range(p):
@@ -310,7 +314,7 @@ class Pool:
                 i, j = np.unravel_index(self.idx[yi, yj, :], self.shape)
                 i += yi * self.stride
                 j += yj * self.stride
-                dx[i, j, np.arange(l_dim)] += dy[yi, yj, :]
+                dx[i, j, use_idx] += dy[yi, yj, :]
         return dx.reshape(self.x_shape)
 
 
@@ -331,8 +335,9 @@ class Flatten:
 
 class Dense:
     def __init__(self, in_dim, out_dim, alpha=1e-3):
-        self.weight = np.random.randn(out_dim, in_dim) * np.sqrt(2.0 / in_dim)
-        self.bias = np.random.randn(out_dim, 1) * np.sqrt(2.0 / in_dim)
+        scale = np.sqrt(2.0 / in_dim)
+        self.weight = np.random.randn(out_dim, in_dim) * scale
+        self.bias = np.random.randn(out_dim, 1) * scale
         self.alpha = alpha
         self.x = None
 
@@ -345,27 +350,27 @@ class Dense:
         return self.weight @ x + self.bias
 
     def backward(self, dy):
-        dw = dy @ self.x.T
+        dx = self.weight.T @ dy
+        dw = dy @ self.x.T / dy.shape[1]
         db = np.expand_dims(np.average(dy, axis=-1), axis=-1)
         self.weight -= self.alpha * dw
         self.bias -= self.alpha * db
-        return self.weight.T @ dy
+        return dx
 
 
 class ReLU:
     def __init__(self):
         self.x = None
-        self.m = 1e-3
 
     def __repr__(self):
         return '[ReLU]'
 
     def forward(self, x):
         self.x = x
-        return np.where(x < 0, 0, x * self.m)
+        return np.where(x < 0, 0, x)
 
     def backward(self, dy):
-        return np.where(self.x < 0, 0, dy * self.m)
+        return np.where(self.x < 0, 0, dy)
 
 
 class Softmax:
@@ -469,7 +474,8 @@ class Plotter:
         self.vals.append(v)
 
     def plot(self, step_size):
-        print(f'train {self.name}: {self.trains[-1]:.3f}, val {self.name}: {self.vals[-1]:.3f}')
+        print(f'train {self.name}: {self.trains[-1]:.3f}')
+        print(f'valid {self.name}: {self.vals[-1]:.3f}')
         cnt = len(self.trains)
         epochs = np.arange(cnt) * step_size
         extra = 'o' if cnt == 1 else ''
@@ -494,10 +500,12 @@ def train(model, dataloader, epochs=5):
             x, y = dataloader.next_train_batch()
             y_pred = model.forward(x)
             model.backward(y)
-            print('.', end='', flush=True)
+            # print('.', end='', flush=True)
 
         if i in marks:
             print('#', end='', flush=True)
+            # x, y = dataloader.train_data()
+            # y_pred = model.forward(x)
             t_loss, t_acc, t_f1 = calc_metrics(y, y_pred)
 
             x_val, y_val = dataloader.val_data()
@@ -505,8 +513,8 @@ def train(model, dataloader, epochs=5):
             v_loss, v_acc, v_f1 = calc_metrics(y_val, y_pred)
 
             print(i)
-            print(f'{t_loss:.3f} {t_acc:.3f} {t_f1:.3f}')
-            print(f'{v_loss:.3f} {v_acc:.3f} {v_f1:.3f}')
+            print(f't = {t_loss:.3f} {t_acc:.3f} {t_f1:.3f}')
+            print(f'v = {v_loss:.3f} {v_acc:.3f} {v_f1:.3f}')
 
             p_loss.add(t_loss, v_loss)
             p_acc.add(t_acc, v_acc)
@@ -530,47 +538,14 @@ def main():
 
     arch_file = 'input.txt'
     params = {
-        'batch_size': 500,
-        'epochs': 5,
-        'alpha': 10
+        'batch_size': 32,
+        'epochs': 10,
+        'alpha': 1e-2
     }
 
-    # x = np.random.rand(32, 32, 3, 50)
-    # y = np.random.rand(10, 50)
-    # model = Model(arch_file, x.shape[:3], params['alpha'])
-    # model.forward(x)
-    # model.backward(y)
-
-    # x = np.random.rand(5, 5, 1, 1)
-    # y = None
-
-    # n = 1
-
-    # conv = Conv(3, (3, 3, 3), 1, 0)
-    # b = time.time()
-    # for _ in range(n):
-    #     y = conv.forward(x)
-    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
-
-    # b = time.time()
-    # for _ in range(n):
-    #     conv.backward(y)
-    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
-
-    # pool = Pool((1, 1), 1)
-    # b = time.time()
-    # for _ in range(n):
-    #     y = pool.forward(x)
-    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
-
-    # b = time.time()
-    # for _ in range(n):
-    #     pool.backward(y)
-    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
-
-    # dataloader = ToyDataLoader(params['batch_size'])
+    dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
-    dataloader = MNISTLoader(params['batch_size'])
+    # dataloader = MNISTLoader(params['batch_size'])
     # dataloader.draw_img(0)
 
     model = Model(arch_file, dataloader.shape(), params['alpha'])
