@@ -131,5 +131,26 @@ from sklearn.metrics import log_loss, accuracy_score, f1_score
 # print(a[[1, 2, 3], [1, 2, 3], :].shape)
 # print(a)
 
-a = [1, 2, 3]
-print(a[:-2])
+# a = [1, 2, 3]
+# print(a[:-2])
+
+# from sklearn.preprocessing import OneHotEncoder
+
+# x = np.arange(4, 10, 2).reshape(-1, 1)
+# x = np.concatenate((x, x))
+
+# enc = OneHotEncoder()
+# print(enc.fit_transform(x).toarray().shape)
+
+a = np.random.rand(5,5,3,5)
+b = np.random.rand(5,5,4,5)
+
+y = np.empty((3, 4))
+for i in range(3):
+    for j in range(4):
+        y[i, j] = np.sum(a[:, :, i, :] * b[:, :, j, :])
+print(y)
+
+a = np.expand_dims(a, axis=3)
+b = np.expand_dims(b, axis=2)
+print(np.sum(a*b, axis=(0,1,4)))

@@ -2,25 +2,19 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import sklearn.metrics as sm
+from sklearn.preprocessing import OneHotEncoder
 import pickle
 from mlxtend.data import loadlocal_mnist
+import os
 import time
 
 np.random.seed(4)
-DEC = 1e-3
+IMG_DIR = 'plots'
 
 
 def safe_log(x):
     x[x <= 0] = 1
     return np.log(x)
-
-
-# returns product of all elements
-def product(a):
-    prod = 1
-    for x in a:
-        prod *= x
-    return prod
 
 
 def get_labels(y):
@@ -39,15 +33,13 @@ def f1_score(y_true, y_pred):
     return sm.f1_score(get_labels(y_true), get_labels(y_pred), average='macro')
 
 
-# list to one hot encoded numpy array
 def one_hot_encode(a):
-    b = np.zeros((len(a), max(a) + 1))
-    b[range(len(a)), a] = 1
-    return b
+    return OneHotEncoder().fit_transform(np.reshape(a, (-1, 1))).toarray()
 
 
-def scale(a):
-    return (2 * a - 1) * DEC
+def shuffle_together(a, b):
+    idx = np.random.permutation(len(a))
+    return a[idx], b[idx]
 
 
 class DataLoader:
@@ -121,18 +113,29 @@ class CIFAR10Loader(DataLoader):
         with open(data_file, 'rb') as f:
             dct = pickle.load(f, encoding='bytes')
         x = dct[b'data']
+        labels = np.array(dct[b'labels'])
+        x, labels = shuffle_together(x, labels)
+
+        # taking only a subset of the labels
+        take = [i for i in range(len(labels)) if labels[i] in (0, 1, 2)]
+        x = x[take]
+        labels = labels[take]
+
+        x, labels = x[:200], labels[:200]
+
         x = x.astype(float) / np.max(x)
         x = np.reshape(x, (len(x), 3, 32, 32))
         x = x.transpose((2, 3, 1, 0))
-        labels = dct[b'labels']
         y = one_hot_encode(labels).T
-        # return x[..., :200], y[:, :200]
+
+        print(x.shape, y.shape)
         return x, y
 
     def draw_img(self, idx):
-        print(self.label_names[np.argmax(self.y_train[idx])])
-        img = self.x_train[idx].transpose((1, 2, 0))
+        label = self.label_names[np.argmax(self.y_train[:, idx])]
+        img = self.x_train[..., idx]
         plt.imshow(img)
+        plt.title(f'img-{idx} is {label}')
         plt.show()
 
     def __init__(self, batch_size):
@@ -151,40 +154,39 @@ class CIFAR10Loader(DataLoader):
 class MNISTLoader(DataLoader):
     @staticmethod
     def read_data(img_file, label_file):
-        x, y = loadlocal_mnist(images_path=img_file, labels_path=label_file)
+        x, labels = loadlocal_mnist(images_path=img_file, labels_path=label_file)
+        x, labels = shuffle_together(x, labels)
 
-        # taking only lables with 0 and 1
-        take = [i for i in range(len(y)) if y[i] in (0, 1, 2)]
-        x = x[take]
-        y = y[take]
+        # taking only a subset of the labels
+        # take = [i for i in range(len(labels)) if labels[i] in (0, 1, 2)]
+        # x = x[take]
+        # labels = labels[take]
 
         x = x.astype(float) / np.max(x)
-        print(x.shape, y.shape)
-        y = one_hot_encode(y).T
         x = np.reshape(x, (len(x), 1, 28, 28))
         x = x.transpose((2, 3, 1, 0))
+        y = one_hot_encode(labels).T
+
         print(x.shape, y.shape)
         return x, y
 
     def draw_img(self, idx):
-        label = np.argmax(self.y_train[:, idx]) 
+        label = np.argmax(self.y_train[:, idx])
         img = np.squeeze(self.x_train[..., idx])
         plt.imshow(img, cmap='gray')
-        plt.savefig(f'mnist{idx}={label}')
-        plt.close()
+        plt.title(f'img-{idx} is {label}')
+        plt.show()
 
     def __init__(self, batch_size):
         x_train, y_train = self.read_data('mnist/train-images.idx3-ubyte', 'mnist/train-labels.idx1-ubyte')
         x_test, y_test = self.read_data('mnist/t10k-images.idx3-ubyte', 'mnist/t10k-labels.idx1-ubyte')
-        # x_train, y_train = x_train[..., :2000], y_train[:, :2000]
-        # x_test, y_test = x_test[..., :1000], y_test[:, :1000]
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
 class Conv:
     def __init__(self, filter_count, filter_shape, stride=1, padding=0, alpha=1e-3):
-        self.filter = np.random.rand(*filter_shape, filter_count)
-        self.bias = np.random.rand(filter_count, 1)
+        self.filter = np.random.randn(*filter_shape, filter_count) * np.sqrt(2.0 / np.prod(filter_shape))
+        self.bias = np.random.randn(filter_count, 1) * np.sqrt(2.0 / np.prod(filter_shape))
         self.stride = stride
         self.padding = padding
         self.alpha = alpha
@@ -193,74 +195,75 @@ class Conv:
 
     def __repr__(self):
         a, b, c, k = self.filter.shape
-        return f'Convolution {k} x {a}x{b}x{c} s{self.stride} p{self.padding}'
+        return f'[Convolution {k} x {a}x{b}x{c} s{self.stride} p{self.padding}]'
 
     def forward(self, x):
         self.x_act_shape = x.shape
-        if self.padding > 0:
-            x = np.pad(x, ((self.padding,), (self.padding,), (0, ), (0, )), constant_values=0)
+        x = np.pad(x, ((self.padding,), (self.padding,), (0,), (0,)), constant_values=0)
         self.x = x
-        n, m, c, _ = x.shape
+        n, m, _, samples = x.shape
         a, b, _, f_cnt = self.filter.shape
         p = (n - a) // self.stride + 1
         q = (m - b) // self.stride + 1
-        y = np.empty((p, q, f_cnt, x.shape[-1]))
+        y = np.empty((p, q, f_cnt, samples))
         x = np.expand_dims(x, axis=-2)
         f = np.expand_dims(self.filter, axis=-1)
         i = 0
         for yi in range(p):
             j = 0
             for yj in range(q):
-                y[yi, yj, :, :] = np.sum(x[i:i+a, j:j+b, :, :, :] * f, axis=(0, 1, 2)) + self.bias
+                y[yi, yj, :, :] = np.sum(x[i:i + a, j:j + b, :, :, :] * f, axis=(0, 1, 2)) + self.bias
                 j += self.stride
             i += self.stride
         return y
 
+    def calc_pos(self, i, n, a):
+        s = self.stride
+        w = a - 1
+        i += self.padding
+        d = i % s
+        i -= d
+        w -= d
+        i //= s
+        while i + a > n and w >= 0 and i >= 0:
+            i -= 1
+            w -= s
+        if i < 0 or w < 0:
+            return [-1] * 4
+        length = min(w // s, i)
+        tw = w - length * s
+        ti = i - length
+        return tw, w, ti, i
+
     def backward(self, dy):
-        db = np.expand_dims(np.average(dy, axis=(0, 1, 3)), axis=-1)
-        self.bias -= self.alpha * db
-        n, m, c, _ = self.x.shape
-        a, b, f_cnt, _ = self.filter.shape
+        db = np.average(np.sum(dy, axis=(0, 1)), axis=-1)
+        self.bias -= self.alpha * np.expand_dims(db, axis=-1)
+        n, m, _, _ = self.x.shape
+        a, b, _, _ = self.filter.shape
         p, q, _, _ = dy.shape
         df = np.empty(self.filter.shape)
         x = np.expand_dims(self.x, axis=3)
         dy = np.expand_dims(dy, axis=2)
         s = self.stride
-        ps, qs = p*s, q*s
+        ps, qs = p * s, q * s
         for fi in range(a):
             for fj in range(b):
-                df[fi, fj, :, :] = np.average(x[fi:fi+ps:s, fj:fj+qs:s, :, :, :]
-                                              * dy[:p, :q, :, :, :], axis=(0, 1, 4))
+                df[fi, fj, :, :] = np.average(np.sum(
+                    x[fi:(fi + ps):s, fj:(fj + qs):s, :, :, :] * dy,
+                    axis=(0, 1)), axis=-1)
         self.filter -= self.alpha * df
 
         an, am, _, _ = self.x_act_shape
         dx = np.zeros(self.x_act_shape)
-        f = np.expand_dims(self.filter, axis=4)
+        f = np.expand_dims(self.filter, axis=-1)
+        f = np.flip(f, axis=(0, 1))
 
         for i in range(an):
             for j in range(am):
-                wk = np.zeros(2, dtype=int)
-                bk = np.array([i, j], dtype=int)
-                bk += self.padding
-                dk = bk % s
-                wk += dk
-                bk -= dk
-                bi, bj = bk // s
-                wi, wj = wk
-                while bi + a > n and wi < a and bi >= 0:
-                    bi -= 1
-                    wi += s
-                while bj + b > m and wj < b and bj >= 0:
-                    bj -= 1
-                    wj += s
-                if bi < 0 or bj < 0 or wi >= a or wj >= b:
-                    continue
-                lik = min(len(range(wi, a, s)) - 1, bi)
-                ljk = min(len(range(wj, b, s)) - 1, bj)
-                ewi, ewj = wi + lik * s, wj + ljk * s
-                tbi, tbj = bi - lik, bj - ljk
-                f_slc = np.flip(f[wi:ewi+1:s, wj:ewj+1:s, :, :, :], axis=(0, 1))
-                dy_slc = dy[tbi:bi+1, tbj:bj+1, :, :, :]
+                twi, wi, tyi, yi = self.calc_pos(i, n, a)
+                twj, wj, tyj, yj = self.calc_pos(j, m, b)
+                f_slc = f[twi:(wi + 1):s, twj:(wj + 1):s, :, :, :]
+                dy_slc = dy[tyi:(yi + 1), tyj:(yj + 1), :, :, :]
                 dx[i, j, :, :] += np.sum(f_slc * dy_slc, axis=(0, 1, 3))
         return dx
 
@@ -274,32 +277,32 @@ class Pool:
 
     def __repr__(self):
         a, b = self.shape
-        return f'Max Pool {a}x{b} s{self.stride}'
+        return f'[Max Pool {a}x{b} s{self.stride}]'
 
     def forward(self, x):
         self.x_shape = x.shape
-        n, m, c, points = x.shape
+        n, m, c, samples = x.shape
         a, b = self.shape
         p = (n - a) // self.stride + 1
         q = (m - b) // self.stride + 1
-        y = np.empty((p, q, c, points))
+        y = np.empty((p, q, c, samples))
 
-        d_lim = c * points
-        self.idx = np.empty((p, q, d_lim), dtype=int)
+        l_dim = c * samples
+        self.idx = np.empty((p, q, l_dim), dtype=int)
 
         for yi in range(p):
             i = yi * self.stride
             for yj in range(q):
                 j = yj * self.stride
-                slc = x[i:i+a, j:j+b, :, :]
+                slc = x[i:i + a, j:j + b, :, :]
                 y[yi, yj, :, :] = np.max(slc, axis=(0, 1))
-                self.idx[yi, yj, :] = np.argmax(slc.reshape(a*b, d_lim), axis=0)
+                self.idx[yi, yj, :] = np.argmax(slc.reshape(a * b, l_dim), axis=0)
         return y
 
     def backward(self, dy):
         p, q, _, _ = dy.shape
-        n, m, c, points = self.x_shape
-        l_dim = c * points
+        n, m, c, samples = self.x_shape
+        l_dim = c * samples
         dy = np.reshape(dy, (p, q, -1))
         dx = np.zeros((n, m, l_dim))
         for yi in range(p):
@@ -316,7 +319,7 @@ class Flatten:
         self.x_shape = None
 
     def __repr__(self):
-        return 'Flatten'
+        return '[Flatten]'
 
     def forward(self, x):
         self.x_shape = x.shape
@@ -328,14 +331,14 @@ class Flatten:
 
 class Dense:
     def __init__(self, in_dim, out_dim, alpha=1e-3):
-        self.weight = scale(np.random.rand(out_dim, in_dim))
-        self.bias = scale(np.random.rand(out_dim, 1))
+        self.weight = np.random.randn(out_dim, in_dim) * np.sqrt(2.0 / in_dim)
+        self.bias = np.random.randn(out_dim, 1) * np.sqrt(2.0 / in_dim)
         self.alpha = alpha
         self.x = None
 
     def __repr__(self):
         out_dim, in_dim = self.weight.shape
-        return f'Dense {in_dim} -> {out_dim}'
+        return f'[Dense {in_dim} -> {out_dim}]'
 
     def forward(self, x):
         self.x = x
@@ -352,10 +355,10 @@ class Dense:
 class ReLU:
     def __init__(self):
         self.x = None
-        self.m = DEC
+        self.m = 1e-3
 
     def __repr__(self):
-        return 'ReLU'
+        return '[ReLU]'
 
     def forward(self, x):
         self.x = x
@@ -370,10 +373,10 @@ class Softmax:
         self.y = None
 
     def __repr__(self):
-        return 'Softmax'
+        return '[Softmax]'
 
     def forward(self, x):
-        x -= np.max(x)
+        x -= np.max(x, axis=0)
         y = np.exp(x)
         s = np.sum(y, axis=0, keepdims=True)
         s[s == 0] = 1
@@ -388,6 +391,7 @@ class Softmax:
 
 class Model:
     def __init__(self, arch_file, in_dim, alpha=1e-3):
+        print(f'{in_dim} <- Input')
         self.layers = []
         with open(arch_file) as f:
             for line in f:
@@ -398,7 +402,7 @@ class Model:
                     filter_dim = int(layer_data[2])
                     stride = int(layer_data[3])
                     padding = int(layer_data[4])
-                    filter_shape = (filter_dim, filter_dim, in_dim[2])
+                    filter_shape = tuple((filter_dim, filter_dim, in_dim[2]))
                     self.layers.append(Conv(filter_count, filter_shape, stride, padding))
                     in_dim = (
                         (in_dim[0] + 2 * padding - filter_shape[0]) // stride + 1,
@@ -418,7 +422,8 @@ class Model:
                 elif layer_name == 'FC':
                     if len(in_dim) > 1:
                         self.layers.append(Flatten())
-                        in_dim = (product(in_dim),)
+                        in_dim = (np.prod(in_dim),)
+                        print(f'{in_dim} <- {self.layers[-1]}')
                     out_dim = (int(layer_data[1]),)
                     self.layers.append(Dense(in_dim[0], out_dim[0], alpha))
                     in_dim = out_dim
@@ -428,10 +433,11 @@ class Model:
                     self.layers.append(Softmax())
                 elif layer_name == 'Flatten':
                     self.layers.append(Flatten())
-                    in_dim = (product(in_dim),)
+                    in_dim = (np.prod(in_dim),)
+                print(f'{in_dim} <- {self.layers[-1]}')
 
     def __repr__(self):
-        return '\n'.join(str(layer) for layer in self.layers)
+        return '-\n' + '\n'.join(str(layer) for layer in self.layers) + '\n-'
 
     def forward(self, x):
         out = x
@@ -445,74 +451,88 @@ class Model:
             grad = layer.backward(grad)
 
 
-def calc_metrics(model, data):
-    x, y = data
-    y_pred = model.forward(x)
-    loss = cross_entropy_loss(y, y_pred)
-    acc = accuracy(y, y_pred)
-    f1 = f1_score(y, y_pred)
+def calc_metrics(y_act, y_pred):
+    loss = cross_entropy_loss(y_act, y_pred)
+    acc = accuracy(y_act, y_pred)
+    f1 = f1_score(y_act, y_pred)
     return loss, acc, f1
+
+
+class Plotter:
+    def __init__(self, name):
+        self.name = name
+        self.trains = []
+        self.vals = []
+
+    def add(self, t, v):
+        self.trains.append(t)
+        self.vals.append(v)
+
+    def plot(self, step_size):
+        print(f'train {self.name}: {self.trains[-1]:.3f}, val {self.name}: {self.vals[-1]:.3f}')
+        cnt = len(self.trains)
+        epochs = np.arange(cnt) * step_size
+        extra = 'o' if cnt == 1 else ''
+        plt.plot(epochs, self.trains, '-r' + extra, lw=2, label='train')
+        plt.plot(epochs, self.vals, '-b' + extra, lw=2, label='val')
+        plt.title(self.name)
+        plt.legend()
+        plt.savefig(os.path.join(IMG_DIR, f'{self.name}.png'))
+        plt.close()
 
 
 def train(model, dataloader, epochs=5):
     step_size = epochs // 20 if epochs > 20 else 1
-    t_losses, v_losses = [], []
-    t_ax, v_ax = [], []
-    t_f1s, v_f1s = [], []
-    for i in range(epochs):
+    marks = range(epochs, -1, -step_size)
+    p_loss, p_acc, p_f1 = Plotter('loss'), Plotter('accuracy'), Plotter('f1 score')
+
+    for i in range(1, epochs + 1):
+        y, y_pred = None, None
+
         dataloader.reset()
         while dataloader.next():
             x, y = dataloader.next_train_batch()
-            model.forward(x)
+            y_pred = model.forward(x)
             model.backward(y)
             print('.', end='', flush=True)
-        if (i + 1) % step_size == 0:
-            print('#', end='', flush=True)
-            t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
-            v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
-            t_losses.append(t_loss)
-            v_losses.append(v_loss)
-            t_ax.append(t_acc)
-            v_ax.append(v_acc)
-            t_f1s.append(t_f1)
-            v_f1s.append(v_f1)
-            print(i, flush=True)
-            print(f't_loss: {t_loss:.3f}, t_acc: {t_acc:.3f}, t_f1: {t_f1:.3f}', flush=True)
-            print(f'v_loss: {v_loss:.3f}, v_acc: {v_acc:.3f}, v_f1: {v_f1:.3f}', flush=True)
-    print(flush=True)
-    # t_loss, t_acc, t_f1 = calc_metrics(model, dataloader.train_data())
-    # v_loss, v_acc, v_f1 = calc_metrics(model, dataloader.val_data())
-    # print(f't_loss: {t_loss:.3f}, t_acc: {t_acc:.3f}, t_f1: {t_f1:.3f}', flush=True)
-    # print(f'v_loss: {v_loss:.3f}, v_acc: {v_acc:.3f}, v_f1: {v_f1:.3f}', flush=True)
 
-    plt.plot(range(len(t_losses)), t_losses, '-ro', lw=2)
-    plt.plot(range(len(v_losses)), v_losses, '-bo', lw=2)
-    plt.title('loss')
-    plt.savefig('loss.png')
-    plt.close()
-    plt.plot(range(len(t_ax)), t_ax, '-ro', lw=2)
-    plt.plot(range(len(v_ax)), v_ax, '-bo', lw=2)
-    plt.title('accuracy')
-    plt.savefig('accuracy.png')
-    plt.close()
-    plt.plot(range(len(t_f1s)), t_f1s, '-ro', lw=2)
-    plt.plot(range(len(v_f1s)), v_f1s, '-bo', lw=2)
-    plt.title('f1 score')
-    plt.savefig('f1.png')
-    plt.close()
+        if i in marks:
+            print('#', end='', flush=True)
+            t_loss, t_acc, t_f1 = calc_metrics(y, y_pred)
+
+            x_val, y_val = dataloader.val_data()
+            y_pred = model.forward(x_val)
+            v_loss, v_acc, v_f1 = calc_metrics(y_val, y_pred)
+
+            print(i)
+            print(f'{t_loss:.3f} {t_acc:.3f} {t_f1:.3f}')
+            print(f'{v_loss:.3f} {v_acc:.3f} {v_f1:.3f}')
+
+            p_loss.add(t_loss, v_loss)
+            p_acc.add(t_acc, v_acc)
+            p_f1.add(t_f1, v_f1)
+    print()
+
+    p_loss.plot(step_size)
+    p_acc.plot(step_size)
+    p_f1.plot(step_size)
+
+    # x_test, y_test = dataloader.test_data()
+    # y_pred = model.forward(x_test)
+    # print(calc_metrics(y_test, y_pred))
+
     return {}
 
 
-def log(arch_file, params, metrics):
-    pass
-
-
 def main():
+    if not os.path.isdir(IMG_DIR):
+        os.makedirs(IMG_DIR)
+
     arch_file = 'input.txt'
     params = {
         'batch_size': 500,
-        'epochs': 1,
-        'alpha': 1e-3
+        'epochs': 5,
+        'alpha': 10
     }
 
     # x = np.random.rand(32, 32, 3, 50)
@@ -521,32 +541,32 @@ def main():
     # model.forward(x)
     # model.backward(y)
 
-    # x = np.random.rand(28, 28, 3, 32)
+    # x = np.random.rand(5, 5, 1, 1)
     # y = None
 
-    # n = 100
+    # n = 1
 
-    # conv = Conv(3, (3, 3, 3), 1, 1)
+    # conv = Conv(3, (3, 3, 3), 1, 0)
     # b = time.time()
     # for _ in range(n):
     #     y = conv.forward(x)
-    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
 
     # b = time.time()
     # for _ in range(n):
     #     conv.backward(y)
-    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
 
     # pool = Pool((1, 1), 1)
     # b = time.time()
     # for _ in range(n):
     #     y = pool.forward(x)
-    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
 
     # b = time.time()
     # for _ in range(n):
     #     pool.backward(y)
-    # print(f'time = {(time.time() - b)/n*1e3:.3f}ms')
+    # print(f' time = {(time.time() - b) / n * 1e3:.3f}ms')
 
     # dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
@@ -556,16 +576,20 @@ def main():
     model = Model(arch_file, dataloader.shape(), params['alpha'])
     print(model)
 
-    metrics = train(model, dataloader, params['epochs'])
-    # log(arch_file, params, metrics)
+    model_out_dim = model.layers[-2].bias.shape[0]
+    act_out_dim = dataloader.train_data()[1].shape[0]
+    assert model_out_dim == act_out_dim, \
+        f'model gives {model_out_dim} labels, but data has {act_out_dim}'
 
-    x, y = dataloader.train_data()
-    x, y = x[..., :10], y[:, :10]
-    y_pred = model.forward(x)
-    act = get_labels(y)
-    pred = get_labels(y_pred)
-    print(act)
-    print(pred)
+    train(model, dataloader, params['epochs'])
+
+    # x, y = dataloader.train_data()
+    # x, y = x[..., :10], y[:, :10]
+    # y_pred = model.forward(x)
+    # act = get_labels(y)
+    # pred = get_labels(y_pred)
+    # print(act)
+    # print(pred)
     # for i in range(5):
     #     dataloader.draw_img(i)
 
