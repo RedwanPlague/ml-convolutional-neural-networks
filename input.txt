@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 Conv 6 5 1 2
 ReLU
 Pool 2 2
+=======
+FC 200
+ReLU
+>>>>>>> bc4f8f20896874f7c93f24a407df90dbb987d45c
 FC 10
 Softmax
