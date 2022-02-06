@@ -119,9 +119,9 @@ class CIFAR10Loader(DataLoader):
         x, labels = shuffle_together(x, labels)
 
         # taking only a subset of the labels
-        take = [i for i in range(len(labels)) if labels[i] in (0, 1, 2)]
-        x = x[take]
-        labels = labels[take]
+        # take = [i for i in range(len(labels)) if labels[i] in (0, 1)]
+        # x = x[take]
+        # labels = labels[take]
 
         x = x.astype(float) / np.max(x)
         x = np.reshape(x, (len(x), 3, 32, 32))
@@ -140,6 +140,7 @@ class CIFAR10Loader(DataLoader):
 
     def __init__(self, batch_size):
         self.label_names = self.load_label_names()
+        print(self.label_names)
         x_batches, y_batches = [], []
         for i in range(1, 6):
             x_batch, y_batch = self.read_data(f'cifar-10/data_batch_{i}')
@@ -159,9 +160,9 @@ class MNISTLoader(DataLoader):
         x, labels = shuffle_together(x, labels)
 
         # taking only a subset of the labels
-        take = [i for i in range(len(labels)) if labels[i] in (0, 1)]
-        x = x[take]
-        labels = labels[take]
+        # take = [i for i in range(len(labels)) if labels[i] in (0, 1, 2)]
+        # x = x[take]
+        # labels = labels[take]
 
         x = x.astype(float) / np.max(x)
         x = np.reshape(x, (len(x), 1, 28, 28))
@@ -181,7 +182,7 @@ class MNISTLoader(DataLoader):
     def __init__(self, batch_size):
         x_train, y_train = self.read_data('mnist/train-images.idx3-ubyte', 'mnist/train-labels.idx1-ubyte')
         x_test, y_test = self.read_data('mnist/t10k-images.idx3-ubyte', 'mnist/t10k-labels.idx1-ubyte')
-        x_train, y_train = x_train[..., :500], y_train[:, :500]
+        # x_train, y_train = x_train[..., :500], y_train[:, :500]
         super().__init__(batch_size, x_train, y_train, x_test, y_test)
 
 
@@ -494,19 +495,25 @@ def train(model, dataloader, epochs=5):
 
     for i in range(1, epochs + 1):
         y, y_pred = None, None
+        metrics = np.zeros(3)
+        cnt = 0
 
         dataloader.reset()
         while dataloader.next():
             x, y = dataloader.next_train_batch()
             y_pred = model.forward(x)
             model.backward(y)
+
+            metrics += np.array(calc_metrics(y, y_pred))
+            cnt += 1
             # print('.', end='', flush=True)
 
         if i in marks:
             print('#', end='', flush=True)
             # x, y = dataloader.train_data()
             # y_pred = model.forward(x)
-            t_loss, t_acc, t_f1 = calc_metrics(y, y_pred)
+            # t_loss, t_acc, t_f1 = calc_metrics(y, y_pred)
+            t_loss, t_acc, t_f1 = metrics / cnt
 
             x_val, y_val = dataloader.val_data()
             y_pred = model.forward(x_val)
@@ -539,13 +546,13 @@ def main():
     arch_file = 'input.txt'
     params = {
         'batch_size': 32,
-        'epochs': 10,
+        'epochs': 5,
         'alpha': 1e-2
     }
 
-    dataloader = ToyDataLoader(params['batch_size'])
+    # dataloader = ToyDataLoader(params['batch_size'])
     # dataloader = CIFAR10Loader(params['batch_size'])
-    # dataloader = MNISTLoader(params['batch_size'])
+    dataloader = MNISTLoader(params['batch_size'])
     # dataloader.draw_img(0)
 
     model = Model(arch_file, dataloader.shape(), params['alpha'])
