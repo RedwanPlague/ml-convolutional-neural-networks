@@ -494,7 +494,7 @@ def train(model, dataloader, epochs=5):
     p_loss, p_acc, p_f1 = Plotter('loss'), Plotter('accuracy'), Plotter('f1 score')
 
     for i in range(1, epochs + 1):
-        y, y_pred = None, None
+        # y, y_pred = None, None
         metrics = np.zeros(3)
         cnt = 0
 
